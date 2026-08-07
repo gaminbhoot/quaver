@@ -23,3 +23,9 @@ src-tauri/Cargo.lock
 *.njsproj
 *.sln
 *.sw?
+
+# Project Specs & Planning Documents
+PRODUCT.md
+DESIGN.md
+implementation_plan.md
+task.md
