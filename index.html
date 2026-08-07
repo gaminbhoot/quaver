@@ -1,0 +1,119 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#09090b" />
+    <title>Quaver</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <!-- Wallpaper-style backdrop derived from the active cover art. -->
+    <div id="backdrop" class="backdrop" aria-hidden="true"></div>
+
+    <!-- ───────────────────────── Title bar ───────────────────────── -->
+    <header class="titlebar" data-tauri-drag-region>
+      <div class="titlebar__title" data-tauri-drag-region>Quaver</div>
+      <div class="titlebar__center" data-tauri-drag-region></div>
+    </header>
+
+    <!-- ───────────────────────── Main shell ───────────────────────── -->
+    <main class="app">
+      <!-- Sidebar: music library directories. -->
+      <aside class="sidebar" aria-label="Library">
+        <div class="sidebar__header">
+          <span class="sidebar__heading">Library</span>
+        </div>
+        <nav id="directory-list" class="sidebar__list" aria-label="Music directories">
+          <!-- Empty state. -->
+          <div class="sidebar__empty">
+            <p>No folders yet.</p>
+            <button id="add-folder-btn" class="btn btn--primary" type="button">
+              Add Folder
+            </button>
+          </div>
+        </nav>
+        <footer class="sidebar__footer">
+          <button id="add-folder-btn-footer" class="btn btn--ghost" type="button">
+            + Add folder
+          </button>
+        </footer>
+      </aside>
+
+      <!-- Track list. -->
+      <section class="tracklist" aria-label="Tracks">
+        <header class="tracklist__header">
+          <div class="tracklist__column tracklist__column--title">Title</div>
+          <div class="tracklist__column tracklist__column--artist">Artist</div>
+          <div class="tracklist__column tracklist__column--album">Album</div>
+          <div class="tracklist__column tracklist__column--duration">Time</div>
+        </header>
+        <div id="track-rows" class="tracklist__rows" role="list">
+          <div class="tracklist__placeholder">
+            <p>Select a music folder to begin.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- Now-playing pane with vinyl record + synced lyrics. -->
+      <section id="now-playing" class="now-playing" aria-label="Now playing">
+        <div class="now-playing__record">
+          <div id="vinyl" class="vinyl" aria-hidden="true">
+            <div class="vinyl__cover" id="vinyl-cover"></div>
+            <div class="vinyl__spindle"></div>
+          </div>
+          <div class="now-playing__meta">
+            <h2 id="np-title" class="now-playing__title">Nothing playing</h2>
+            <p id="np-artist" class="now-playing__artist">&nbsp;</p>
+            <p id="np-album" class="now-playing__album">&nbsp;</p>
+          </div>
+        </div>
+
+        <div id="lyrics" class="lyrics" aria-live="polite">
+          <ol id="lyrics-list" class="lyrics__list"></ol>
+        </div>
+      </section>
+    </main>
+
+    <!-- ───────────────────────── Player bar ───────────────────────── -->
+    <footer class="player" aria-label="Player controls">
+      <div class="player__info">
+        <div id="player-cover" class="player__cover" aria-hidden="true"></div>
+        <div class="player__text">
+          <div id="player-title" class="player__title">—</div>
+          <div id="player-artist" class="player__artist">—</div>
+        </div>
+      </div>
+
+      <div class="player__controls">
+        <button id="prev-btn" class="player__btn" type="button" aria-label="Previous">⏮</button>
+        <button id="play-btn" class="player__btn player__btn--primary" type="button" aria-label="Play">▶</button>
+        <button id="next-btn" class="player__btn" type="button" aria-label="Next">⏭</button>
+      </div>
+
+      <div class="player__timeline">
+        <span id="time-current" class="player__time">0:00</span>
+        <div id="progress" class="progress" role="slider" aria-label="Seek">
+          <div id="progress-fill" class="progress__fill"></div>
+        </div>
+        <span id="time-total" class="player__time">0:00</span>
+      </div>
+
+      <div class="player__volume">
+        <button id="lyrics-toggle" class="player__btn" type="button" aria-label="Toggle lyrics">
+          Lyrics
+        </button>
+      </div>
+    </footer>
+
+    <audio id="audio" preload="metadata"></audio>
+
+    <script type="module" src="/src/app.js"></script>
+  </body>
+</html>
