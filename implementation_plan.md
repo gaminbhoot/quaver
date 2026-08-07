@@ -1,4 +1,4 @@
-# Implementation Plan: Native macOS Tauri Music Player
+# Implementation Plan: Quaver Native macOS Music Player
 
 A high-performance, lightweight, macOS-native FLAC/ALAC reader and player utilizing Tauri (Rust backend) and Vite (HTML/CSS/JS frontend).
 
@@ -20,12 +20,12 @@ graph TD
 ```
 
 ### 1. Tauri Backend (Rust Configuration)
-#### [NEW] [Cargo.toml](file:///Users/jay/Documents/Projects/monochrome-native/src-tauri/Cargo.toml)
+#### [NEW] [Cargo.toml](file:///Users/jay/Documents/Projects/quaver/src-tauri/Cargo.toml)
 Configure Tauri dependencies, including:
 - `lofty`: For fast FLAC/ALAC/M4A metadata extraction.
 - `serde`: For serialization of playlist and tracks config state.
 
-#### [NEW] [main.rs](file:///Users/jay/Documents/Projects/monochrome-native/src-tauri/src/main.rs)
+#### [NEW] [main.rs](file:///Users/jay/Documents/Projects/quaver/src-tauri/src/main.rs)
 Implement Rust commands exposed to the frontend:
 - `select_music_directory()`: Open native macOS folder chooser.
 - `scan_directory(path)`: Recursively find `.flac`, `.m4a` (ALAC), `.mp3` and `.lrc` lyric files.
@@ -33,16 +33,16 @@ Implement Rust commands exposed to the frontend:
 - `save_config(path)` / `load_config()`: Persist last scanned directories.
 
 ### 2. Frontend Interface (Tauri UI)
-#### [NEW] [index.html](file:///Users/jay/Documents/Projects/monochrome-native/index.html)
+#### [NEW] [index.html](file:///Users/jay/Documents/Projects/quaver/index.html)
 Define app frame with macOS traffic light buttons, sidebar directories, main track lists, player controls, and fullscreen synced lyrics pane.
 
-#### [NEW] [style.css](file:///Users/jay/Documents/Projects/monochrome-native/src/style.css)
+#### [NEW] [style.css](file:///Users/jay/Documents/Projects/quaver/src/style.css)
 Design system for macOS native styles:
 - Vibrant, semi-transparent panels.
 - Rotating circular cover art (vinyl style with spindle hole cutout).
 - Scrolling synced lyrics: large typography, active item magnified and glowed, past/future items blurred and faded.
 
-#### [NEW] [app.js](file:///Users/jay/Documents/Projects/monochrome-native/src/app.js)
+#### [NEW] [app.js](file:///Users/jay/Documents/Projects/quaver/src/app.js)
 App controller handling IPC invokes to Tauri commands, populating playlists, managing media playback states, parsing `.lrc` files, and handling auto-scroll.
 
 ---

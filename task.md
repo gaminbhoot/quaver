@@ -1,4 +1,4 @@
-# Task: Native macOS FLAC/ALAC Music Player (Tauri)
+# Task: Native macOS FLAC/ALAC Music Player (Quaver)
 
 - [x] Planning & Design Setup
   - [x] Create Product specification (PRODUCT.md)
