@@ -13,14 +13,9 @@
   <body>
     <!-- Main App Container simulating native macOS window -->
     <div class="mac-window">
-      <!-- Titlebar / Header -->
-      <div class="window-titlebar" id="titlebar">
-        <div class="traffic-lights">
-          <span class="dot close"></span>
-          <span class="dot minimize"></span>
-          <span class="dot maximize"></span>
-        </div>
-        <div class="window-title">Quaver</div>
+      <!-- Titlebar / Top Navigation Header -->
+      <div class="window-titlebar" data-tauri-drag-region id="titlebar">
+        <div class="titlebar-spacer"></div>
         <div class="top-nav-controls">
           <button id="import-folder-btn" class="btn-primary-mac">
             <svg class="icon-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
@@ -63,7 +58,7 @@
                 </thead>
                 <tbody id="tracks-list-body">
                   <tr class="empty-state">
-                    <td colspan="5" style="text-align: center; padding: 4rem 1rem;">
+                    <td colspan="5" style="text-align: center; padding: 6rem 1rem;">
                       <div class="empty-icon">📁</div>
                       <h3>No music loaded yet</h3>
                       <p>Click "Add Music Folder" to select your FLAC/ALAC library (Local or External Drive).</p>
@@ -129,7 +124,7 @@
         <div class="fullscreen-bg" id="fullscreen-bg"></div>
         <div class="fullscreen-bg-overlay"></div>
 
-        <div class="fullscreen-header">
+        <div class="fullscreen-header" data-tauri-drag-region>
           <div class="fullscreen-window-title" id="fs-window-title">Quaver Music - Not Playing</div>
           <div class="fullscreen-controls">
             <button class="btn-icon btn-close-fs" id="btn-close-fs" title="Exit Fullscreen">
