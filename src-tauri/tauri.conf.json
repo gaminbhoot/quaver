@@ -4,27 +4,16 @@
   "version": "0.1.0",
   "identifier": "com.quaver.app",
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "npm run build",
-    "frontendDist": "../dist"
+    "frontendDist": "../src"
   },
   "app": {
+    "withGlobalTauri": true,
     "windows": [
       {
-        "label": "main",
         "title": "Quaver",
-        "width": 1180,
-        "height": 760,
-        "minWidth": 880,
-        "minHeight": 560,
-        "resizable": true,
-        "fullscreen": false,
-        "titleBarStyle": "Overlay",
-        "hiddenTitle": true,
-        "decorations": true,
-        "transparent": true,
-        "acceptFirstMouse": true
+        "width": 1280,
+        "height": 800,
+        "resizable": true
       }
     ],
     "security": {
@@ -37,15 +26,9 @@
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
-      "icons/128x128@2x.png"
-    ],
-    "category": "Music",
-    "shortDescription": "A native macOS FLAC / ALAC music player with synced lyrics.",
-    "longDescription": "Quaver is a lightweight, premium macOS music player for high-quality local audio files (FLAC, ALAC, MP3) with Apple Music-style synced lyrics and a vinyl-inspired now-playing view.",
-    "copyright": "Copyright © 2026",
-    "macOS": {
-      "minimumSystemVersion": "11.0"
-    }
-  },
-  "plugins": {}
+      "icons/128x128@2x.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ]
+  }
 }
