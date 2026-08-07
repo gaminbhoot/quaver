@@ -1,0 +1,25 @@
+# Node.js
+node_modules/
+dist/
+dist-js/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Rust / Tauri
+src-tauri/target/
+src-tauri/Cargo.lock
+
+# macOS system files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Local IDEs
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
