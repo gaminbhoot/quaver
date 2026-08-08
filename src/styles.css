@@ -975,18 +975,6 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
 }
 
 /* Playback controls and the lightweight, native-feeling Up Next drawer. */
-.playback-speed {
-  min-width: 30px;
-  height: 26px;
-  padding: 0 6px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--text-secondary, #a1a1aa);
-  font: 600 11px/1 var(--font-main, system-ui);
-  cursor: pointer;
-}
-.playback-speed:hover, .playback-speed.active { background: rgba(255,255,255,.1); color: #fff; }
 .btn-icon.repeat-one::after { content: '1'; position: absolute; font: 700 9px/1 system-ui; transform: translate(5px, 5px); }
 
 .queue-panel {

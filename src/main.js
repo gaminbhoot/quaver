@@ -19,8 +19,6 @@ let isShuffle = false;
 let repeatMode = 'off';
 let playbackQueue = [];
 let queueDragIndex = null;
-let playbackSpeedIndex = 0;
-const playbackSpeeds = [1, 1.25, 1.5, 2];
 let lyrics = [];
 let activeLyricIndex = -1;
 let lastPlaybackErrorSource = '';
@@ -72,7 +70,6 @@ const volumeBarWrapper = document.getElementById('volume-bar-wrapper');
 const volumeBar = document.getElementById('volume-bar');
 const likeCurrentBtn = document.getElementById('btn-like-current');
 const queueBtn = document.getElementById('btn-queue');
-const speedBtn = document.getElementById('btn-speed');
 const queuePanel = document.getElementById('queue-panel');
 const queueList = document.getElementById('queue-list');
 const closeQueueBtn = document.getElementById('btn-close-queue');
@@ -505,13 +502,6 @@ function setRepeatMode(mode) {
 
 function cycleRepeat() {
   setRepeatMode(repeatMode === 'off' ? 'all' : repeatMode === 'all' ? 'one' : 'off');
-}
-
-function cyclePlaybackSpeed() {
-  playbackSpeedIndex = (playbackSpeedIndex + 1) % playbackSpeeds.length;
-  audio.playbackRate = playbackSpeeds[playbackSpeedIndex];
-  speedBtn.textContent = `${playbackSpeeds[playbackSpeedIndex]}×`;
-  speedBtn.classList.toggle('active', playbackSpeeds[playbackSpeedIndex] !== 1);
 }
 
 function escapeHtml(value) {
@@ -962,7 +952,6 @@ fsShuffleBtn.addEventListener('click', () => {
 
 repeatBtn.addEventListener('click', cycleRepeat);
 fsRepeatBtn.addEventListener('click', cycleRepeat);
-speedBtn.addEventListener('click', cyclePlaybackSpeed);
 queueBtn.addEventListener('click', () => {
   renderQueue();
   queuePanel.classList.add('open');
