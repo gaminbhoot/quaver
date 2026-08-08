@@ -68,6 +68,8 @@ function syncNativePlayer() {
       progress: progressPct,
       volume: volPct,
       in_lyrics_mode: inLyrics,
+      elapsed: formatTime(audio?.currentTime || 0),
+      total: formatTime(audio?.duration || 0),
     },
   }).catch(() => {});
 }

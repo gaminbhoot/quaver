@@ -113,6 +113,7 @@ pub struct NativeGlassManager {
     player_cover_btn: Retained<NSButton>,
     player_title: Retained<objc2_app_kit::NSTextField>,
     player_artist: Retained<objc2_app_kit::NSTextField>,
+    player_time_label: Retained<objc2_app_kit::NSTextField>,
     player_play_btn: Retained<NSButton>,
     player_like_btn: Retained<NSButton>,
     player_shuffle_btn: Retained<NSButton>,
@@ -136,6 +137,8 @@ pub struct NativePlayerState {
     pub progress: Option<f64>,
     pub volume: Option<f64>,
     pub in_lyrics_mode: Option<bool>,
+    pub elapsed: Option<String>,
+    pub total: Option<String>,
 }
 
 unsafe impl Send for NativeGlassManager {}
@@ -175,6 +178,14 @@ impl NativeGlassManager {
         let player_cover = NSImageView::new(mtm);
         let player_title = objc2_app_kit::NSTextField::labelWithString(ns_string!("Not Playing"), mtm);
         let player_artist = objc2_app_kit::NSTextField::labelWithString(ns_string!("-"), mtm);
+        let player_time_label = objc2_app_kit::NSTextField::labelWithString(ns_string!("0:00 / 0:00"), mtm);
+        player_time_label.setFont(Some(&NSFont::systemFontOfSize(10.0)));
+        player_time_label.setTextColor(Some(&objc2_app_kit::NSColor::secondaryLabelColor()));
+        // Allow the label to be visible over glass material
+        unsafe { let _: () = msg_send![&*player_time_label, setBezeled: false]; }
+        unsafe { let _: () = msg_send![&*player_time_label, setDrawsBackground: false]; }
+        unsafe { let _: () = msg_send![&*player_time_label, setEditable: false]; }
+        unsafe { let _: () = msg_send![&*player_time_label, setSelectable: false]; }
 
         let controller_obj = NativeSidebarController::new(mtm);
         let controller_target = target(&controller_obj);
@@ -211,6 +222,7 @@ impl NativeGlassManager {
             player_cover_btn,
             player_title,
             player_artist,
+            player_time_label,
             player_play_btn,
             player_like_btn,
             player_shuffle_btn,
@@ -349,11 +361,19 @@ impl NativeGlassManager {
         }
         content.addSubview(&self.player_cover_btn);
 
-        // Metadata Labels
-        self.player_title.setFrame(NSRect::new(NSPoint::new(74.0, 44.0), NSSize::new(200.0, 20.0)));
-        self.player_artist.setFrame(NSRect::new(NSPoint::new(74.0, 22.0), NSSize::new(200.0, 16.0)));
+        // Metadata Labels — shifted up to clear progress bar
+        self.player_title.setFrame(NSRect::new(NSPoint::new(74.0, 46.0), NSSize::new(200.0, 18.0)));
+        self.player_artist.setFrame(NSRect::new(NSPoint::new(74.0, 30.0), NSSize::new(200.0, 14.0)));
+        self.player_title.setFont(Some(&NSFont::systemFontOfSize(13.0)));
+        self.player_artist.setFont(Some(&NSFont::systemFontOfSize(11.0)));
+        self.player_artist.setTextColor(Some(&objc2_app_kit::NSColor::secondaryLabelColor()));
         content.addSubview(&self.player_title);
         content.addSubview(&self.player_artist);
+
+        // Time label (elapsed / total) — sits inline with progress, left of slider
+        self.player_time_label.setFrame(NSRect::new(NSPoint::new(74.0, 8.0), NSSize::new(80.0, 14.0)));
+        self.player_time_label.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMaxXMargin | NSAutoresizingMaskOptions::ViewMinYMargin);
+        content.addSubview(&self.player_time_label);
 
         let controller = target(&self._controller);
 
@@ -403,8 +423,8 @@ impl NativeGlassManager {
         queue_btn.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMinXMargin | NSAutoresizingMaskOptions::ViewMinYMargin);
         content.addSubview(&queue_btn);
 
-        // Progress slider (seek) - centered bottom area with native NSSlider
-        self.player_progress_slider.setFrame(NSRect::new(NSPoint::new(74.0, 10.0), NSSize::new(self.player.bounds().size.width - 260.0, 14.0)));
+        // Progress slider (seek) — shifted down to clear artist label, now starts after time label
+        self.player_progress_slider.setFrame(NSRect::new(NSPoint::new(160.0, 8.0), NSSize::new((self.player.bounds().size.width - 346.0).max(80.0), 14.0)));
         self.player_progress_slider.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewMinYMargin);
         content.addSubview(&self.player_progress_slider);
 
@@ -412,6 +432,55 @@ impl NativeGlassManager {
         self.player_volume_slider.setFrame(NSRect::new(NSPoint::new(self.player.bounds().size.width - 118.0, 8.0), NSSize::new(70.0, 14.0)));
         self.player_volume_slider.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMinXMargin | NSAutoresizingMaskOptions::ViewMinYMargin);
         content.addSubview(&self.player_volume_slider);
+    }
+
+    fn position_traffic_lights(&self, parent: &NSView) {
+        // Move native traffic lights from the window chrome into the sidebar
+        // glass capsule, like Finder/Music. Buttons live in the titlebar's
+        // superview; their frameOrigin is in that superview's coordinates.
+        // Finder places them ~20pt below the window top (8pt below the 12pt
+        // outer inset), i.e. ~12pt inside a 32pt titlebar and 20pt spaced.
+        let win_frame = self._window.frame();
+        let win_h = win_frame.size.height;
+        let parent_h = parent.bounds().size.height;
+        eprintln!("[traffic] win_h={:.1} parent_h={:.1}", win_h, parent_h);
+        unsafe {
+            let close: Option<Retained<NSButton>> = msg_send![&*self._window, standardWindowButton: 0u64];
+            let mini: Option<Retained<NSButton>> = msg_send![&*self._window, standardWindowButton: 1u64];
+            let zoom: Option<Retained<NSButton>> = msg_send![&*self._window, standardWindowButton: 2u64];
+            eprintln!("[traffic] buttons close={} mini={} zoom={}", close.is_some(), mini.is_some(), zoom.is_some());
+            if let Some(ref btn) = close {
+                if let Some(sv) = btn.superview() {
+                    let sh = sv.bounds().size.height;
+                    eprintln!("[traffic] close superview h={:.1} frame={:?}", sh, btn.frame());
+                    let ly = if (20.0..=40.0).contains(&sh) { sh - 24.0 } else { 8.0 };
+                    btn.setFrameOrigin(NSPoint::new(SIDEBAR_INSET + 16.0, ly));
+                } else {
+                    btn.setFrameOrigin(NSPoint::new(SIDEBAR_INSET + 16.0, 8.0));
+                }
+                let _: () = msg_send![&**btn, setHidden: false];
+            }
+            if let Some(ref btn) = mini {
+                if let Some(sv) = btn.superview() {
+                    let sh = sv.bounds().size.height;
+                    let ly = if (20.0..=40.0).contains(&sh) { sh - 24.0 } else { 8.0 };
+                    btn.setFrameOrigin(NSPoint::new(SIDEBAR_INSET + 36.0, ly));
+                } else {
+                    btn.setFrameOrigin(NSPoint::new(SIDEBAR_INSET + 36.0, 8.0));
+                }
+                let _: () = msg_send![&**btn, setHidden: false];
+            }
+            if let Some(ref btn) = zoom {
+                if let Some(sv) = btn.superview() {
+                    let sh = sv.bounds().size.height;
+                    let ly = if (20.0..=40.0).contains(&sh) { sh - 24.0 } else { 8.0 };
+                    btn.setFrameOrigin(NSPoint::new(SIDEBAR_INSET + 56.0, ly));
+                } else {
+                    btn.setFrameOrigin(NSPoint::new(SIDEBAR_INSET + 56.0, 8.0));
+                }
+                let _: () = msg_send![&**btn, setHidden: false];
+            }
+        }
     }
 
     fn position_controls(&self) {
@@ -456,6 +525,10 @@ impl NativeGlassManager {
                 NSSize::new(SIDEBAR_WIDTH - SIDEBAR_INSET, sidebar_height),
             ));
             self.sidebar.setAutoresizingMask(NSAutoresizingMaskOptions::ViewHeightSizable);
+            // Mitigate hard seam: remove glass border so sidebar blends into unified #1c1c20 surface
+            if let Some(layer) = self.sidebar.layer() {
+                layer.setBorderWidth(0.0);
+            }
 
             self.webview.setFrame(NSRect::new(
                 NSPoint::new(SIDEBAR_WIDTH, 0.0),
@@ -475,6 +548,15 @@ impl NativeGlassManager {
                     | NSAutoresizingMaskOptions::ViewMaxYMargin,
             );
             self.position_controls();
+            self.position_traffic_lights(&parent);
+            // Keep time/progress aligned after player width changes
+            let p_w = self.player.bounds().size.width;
+            if p_w > 100.0 {
+                // time left, progress centered, volume right
+                self.player_time_label.setFrame(NSRect::new(NSPoint::new(74.0, 8.0), NSSize::new(80.0, 14.0)));
+                self.player_progress_slider.setFrame(NSRect::new(NSPoint::new(160.0, 8.0), NSSize::new((p_w - 346.0).max(80.0), 14.0)));
+                self.player_volume_slider.setFrame(NSRect::new(NSPoint::new(p_w - 118.0, 8.0), NSSize::new(70.0, 14.0)));
+            }
         }
     }
 
@@ -551,6 +633,14 @@ impl NativeGlassManager {
                 _ => "↺",
             };
             self.player_repeat_btn.setTitle(&NSString::from_str(sym));
+        }
+
+        // Update time label — show elapsed / total like 1:34 / 2:50
+        if state.elapsed.is_some() || state.total.is_some() {
+            let elapsed = state.elapsed.as_deref().unwrap_or("0:00");
+            let total = state.total.as_deref().unwrap_or("0:00");
+            let combined = format!("{} / {}", elapsed, total);
+            self.player_time_label.setStringValue(&NSString::from_str(&combined));
         }
     }
 }

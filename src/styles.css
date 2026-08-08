@@ -94,11 +94,12 @@ html.native-sidebar-active .mini-player,
 /* Unified macOS Native Window Integration */
 html.native-sidebar-active,
 html.native-sidebar-active body {
-  background: #141416;
+  background: #121215;
 }
 
 html.native-sidebar-active .mac-window {
-  background: transparent;
+  background: #121215;
+  background-image: none;
   border: none;
   border-radius: 0;
   box-shadow: none;
@@ -117,10 +118,17 @@ html.native-sidebar-active .titlebar-blur-backdrop {
   opacity: 0 !important;
 }
 
+html.native-sidebar-active .window-content {
+  background: #1c1c20;
+}
+
 html.native-sidebar-active .main-view {
-  background: transparent;
+  background: #1c1c20;
+  background-image: none;
   padding-top: 16px;
   padding-bottom: 104px;
+  border-left: none;
+  box-shadow: none;
 }
 
 /* Unified surface: WebView and library read as one macOS surface when native chrome owns the window */
@@ -135,8 +143,10 @@ html.native-sidebar-active .tracks-table th {
   background: transparent;
 }
 
-html.native-sidebar-active .mac-window {
-  background: #141416;
+html.native-sidebar-active .tracks-table,
+html.native-sidebar-active .view-pane,
+html.native-sidebar-active .library-heading {
+  background: transparent;
 }
 
 /* Ensure all interactive controls opt out of macOS window dragging */
@@ -964,14 +974,15 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
 .fullscreen-header {
   position: relative;
   z-index: 10;
-  height: 64px;
+  height: 44px;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 40px 0 80px;
+  justify-content: flex-end;
+  padding: 0 24px 0 24px;
 }
 
-.fullscreen-window-title { font-size: 13px; font-weight: 500; color: rgba(255, 255, 255, 0.6); }
+.fullscreen-window-title,
+#fs-window-title { display: none !important; visibility: hidden !important; }
 .btn-close-fs { color: rgba(255, 255, 255, 0.6); }
 .btn-close-fs:hover { color: #fff; background-color: rgba(255, 255, 255, 0.1); }
 
@@ -980,12 +991,16 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
   z-index: 10;
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(320px, 420px) minmax(480px, 1fr);
-  gap: 80px;
-  padding: 40px 80px 80px;
+  grid-template-columns: minmax(360px, 480px) minmax(520px, 1.2fr);
+  gap: clamp(40px, 6vw, 110px);
+  padding: clamp(16px, 2.5vh, 32px) clamp(32px, 5vw, 96px) clamp(32px, 4vh, 64px);
   align-items: center;
   justify-content: center;
   overflow: hidden;
+  width: 100%;
+  max-width: 1600px;
+  margin: 0 auto;
+  box-sizing: border-box;
 }
 
 /* Centered layout for tracks without lyrics */
@@ -1017,11 +1032,11 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
 .fullscreen-media-column {
   display: flex;
   flex-direction: column;
-  gap: 28px;
+  gap: clamp(20px, 2.2vh, 32px);
   align-items: flex-start;
   justify-self: center;
   width: 100%;
-  max-width: 380px;
+  max-width: clamp(380px, 32vw, 520px);
 }
 
 .fullscreen-artwork-card {
@@ -1063,8 +1078,8 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
   box-shadow: inset 0 0 10px rgba(0, 0, 0, 0.8);
 }
 
-.fullscreen-track-info h2 { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; color: #fff; margin-bottom: 6px; }
-#fullscreen-track-artist { font-size: 16px; color: rgba(255, 255, 255, 0.64); }
+.fullscreen-track-info h2 { font-size: clamp(26px, 2vw, 36px); font-weight: 700; letter-spacing: -0.02em; color: #fff; margin-bottom: 6px; }
+#fullscreen-track-artist { font-size: clamp(14px, 1.1vw, 18px); color: rgba(255, 255, 255, 0.64); }
 
 .fs-progress-container {
   display: flex;
@@ -1103,6 +1118,10 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
   border: none;
   width: 56px;
   height: 56px;
+  min-width: 56px;
+  min-height: 56px;
+  flex: 0 0 56px;
+  aspect-ratio: 1 / 1;
   border-radius: 50%;
   display: flex;
   align-items: center;
@@ -1141,14 +1160,14 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
 
 .fullscreen-lyrics-content::-webkit-scrollbar { display: none; }
 .fullscreen-lyrics-content:active { cursor: grabbing; }
-.synced-lyrics-list { padding: 120px 0; display: flex; flex-direction: column; gap: 20px; }
+.synced-lyrics-list { padding: clamp(80px, 12vh, 160px) 0; display: flex; flex-direction: column; gap: clamp(12px, 1.6vh, 22px); }
 
 .synced-line {
   font-family: var(--font-lyrics);
-  padding: 10px 0;
-  font-size: 32px;
+  padding: clamp(6px, 0.8vh, 10px) 0;
+  font-size: clamp(28px, 2.4vw, 44px);
   font-weight: 700;
-  line-height: 1.4;
+  line-height: 1.28;
   letter-spacing: -0.035em;
   color: rgba(255, 255, 255, 0.52);
   opacity: 0.42;
