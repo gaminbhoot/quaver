@@ -378,7 +378,6 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
   background: rgba(10, 132, 255, 0.1);
 }
 
-.col-num { width: 40px; text-align: center; color: var(--muted-foreground); }
 .col-title { font-weight: 500; }
 .track-cell { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .track-cell > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

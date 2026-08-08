@@ -303,7 +303,6 @@ function renderPlaylist() {
 
     const isLiked = likedTrackKeys.has(trackKey(track));
     row.innerHTML = `
-      <td class="col-num">${index + 1}</td>
       <td class="col-title">
         <div class="track-cell">
           ${track.cover ? `<img src="${track.cover}" style="width: 28px; height: 28px; border-radius: 4px; object-fit: cover;" />` : `<div style="width: 28px; height: 28px; border-radius: 4px; background-color:#27272a;"></div>`}
