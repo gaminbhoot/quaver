@@ -27,7 +27,8 @@ log = "0.4"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 objc2 = "0.6.4"
-objc2-foundation = { version = "0.3.2", features = ["NSGeometry", "NSString", "NSThread"] }
+objc2-foundation = { version = "0.3.2", features = ["NSGeometry", "NSString", "NSThread", "NSData"] }
+objc2-quartz-core = { version = "0.3.2", features = ["CALayer"] }
 objc2-app-kit = { version = "0.3.2", features = [
     "NSResponder",
     "NSView",
@@ -36,8 +37,11 @@ objc2-app-kit = { version = "0.3.2", features = [
     "NSButton",
     "NSTextField",
     "NSSearchField",
+    "NSSlider",
     "NSFont",
     "NSColor",
     "NSGlassEffectView",
+    "NSImage",
+    "NSImageView",
     "objc2-core-foundation",
 ] }

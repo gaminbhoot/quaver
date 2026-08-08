@@ -65,6 +65,35 @@ fn get_saved_music_folder(app: tauri::AppHandle) -> Option<String> {
     folder.is_dir().then(|| config.music_folder)
 }
 
+fn find_folder_cover(track_path: &Path) -> Option<String> {
+    let parent = track_path.parent()?;
+    let cover_names = [
+        "cover.jpg", "cover.jpeg", "cover.png", "cover.webp",
+        "folder.jpg", "folder.jpeg", "folder.png", "folder.webp",
+        "album.jpg", "album.jpeg", "album.png", "album.webp",
+        "front.jpg", "front.jpeg", "front.png", "front.webp",
+        "Cover.jpg", "Cover.jpeg", "Cover.png",
+        "Folder.jpg", "Folder.jpeg", "Folder.png",
+        "Album.jpg", "Front.jpg"
+    ];
+    for name in cover_names {
+        let candidate = parent.join(name);
+        if candidate.is_file() {
+            if let Ok(bytes) = fs::read(&candidate) {
+                let ext = candidate.extension().and_then(|e| e.to_str()).unwrap_or("jpeg");
+                let mime = match ext.to_lowercase().as_str() {
+                    "png" => "image/png",
+                    "webp" => "image/webp",
+                    _ => "image/jpeg",
+                };
+                let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                return Some(format!("data:{mime};base64,{b64}"));
+            }
+        }
+    }
+    None
+}
+
 #[tauri::command]
 fn scan_directory(dir_path: String) -> Vec<TrackMetadata> {
     let mut tracks = Vec::new();
@@ -109,12 +138,17 @@ fn scan_directory(dir_path: String) -> Vec<TrackMetadata> {
                                 }
                             }
 
-                            // Extract Picture
-                            if let Some(pic) = tag.pictures().first() {
+                            // Extract Picture (Primary tag or any tag)
+                            if let Some(pic) = tag.pictures().first().or_else(|| tagged_file.tags().iter().find_map(|t| t.pictures().first())) {
                                 let mime = pic.mime_type().map(|m| m.as_str()).unwrap_or("image/jpeg");
                                 let b64 = base64::engine::general_purpose::STANDARD.encode(pic.data());
                                 cover_data_url = Some(format!("data:{};base64,{}", mime, b64));
                             }
+                        }
+
+                        // Folder artwork fallback if no embedded picture was found in tags
+                        if cover_data_url.is_none() {
+                            cover_data_url = find_folder_cover(path);
                         }
 
                         // Check for matching .lrc file
@@ -166,15 +200,23 @@ fn update_native_player(state: macos::glass::NativePlayerState, window: tauri::W
     let _ = window.run_on_main_thread(move || macos::window::update_native_player(state));
 }
 
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn update_lyrics_mode(enabled: bool, window: tauri::WebviewWindow) {
+    let _ = window.run_on_main_thread(move || macos::window::update_lyrics_mode(enabled));
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn sync_native_sidebar() {}
+
 #[cfg(not(target_os = "macos"))]
 #[tauri::command]
 fn update_native_player(_state: serde_json::Value) {}
 
 #[cfg(not(target_os = "macos"))]
 #[tauri::command]
-fn sync_native_sidebar() {
-    // No-op on non-macOS platforms
-}
+fn update_lyrics_mode(_enabled: bool) {}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -197,7 +239,8 @@ pub fn run() {
             read_lyrics_file,
             start_drag,
             sync_native_sidebar,
-            update_native_player
+            update_native_player,
+            update_lyrics_mode
         ])
         .setup(|app| {
             // Initialize native AppKit sidebar on the main window.

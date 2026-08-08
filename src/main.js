@@ -12,11 +12,24 @@ function invoke(command, args) {
 }
 
 function syncNativePlayer() {
+  const track = currentTrackIndex >= 0 ? playlist[currentTrackIndex] : null;
+  const isLiked = track ? likedTrackKeys.has(trackKey(track)) : false;
+  const progressPct = (audio && audio.duration && Number.isFinite(audio.duration)) ? (audio.currentTime / audio.duration) * 100 : 0;
+  const volPct = audio ? audio.volume * 100 : 100;
+  const inLyrics = fullscreenOverlay?.classList.contains('active') || false;
+
   invoke('update_native_player', {
     state: {
-      title: currentTrackIndex >= 0 ? playlist[currentTrackIndex]?.title || 'Not Playing' : 'Not Playing',
-      artist: currentTrackIndex >= 0 ? playlist[currentTrackIndex]?.artist || '-' : '-',
+      title: track?.title || 'Not Playing',
+      artist: track?.artist || '-',
       playing: isPlaying,
+      cover: track?.cover || '',
+      liked: isLiked,
+      shuffle: isShuffle,
+      repeat: repeatMode,
+      progress: progressPct,
+      volume: volPct,
+      in_lyrics_mode: inLyrics,
     },
   }).catch(() => {});
 }
@@ -648,7 +661,13 @@ async function playTrack(index) {
 
   miniTitle.textContent = track.title;
   miniArtist.textContent = track.artist;
-  miniCover.style.backgroundImage = track.cover ? `url(${track.cover})` : 'none';
+  if (track.cover) {
+    miniCover.style.backgroundImage = `url(${track.cover})`;
+    miniCover.classList.add('has-cover');
+  } else {
+    miniCover.style.backgroundImage = 'none';
+    miniCover.classList.remove('has-cover');
+  }
 
   fsWindowTitle.textContent = `Quaver - ${track.title} • ${track.artist} 🔊`;
   fsTrackTitle.textContent = track.title;
@@ -1088,16 +1107,24 @@ attachSliderDrag(fsVolumeBarWrapper, (pct) => {
   fsVolumeBar.style.width = `${pct * 100}%`;
 });
 
+function openLyricsOverlay() {
+  if (currentTrackIndex !== -1 || playlist.length > 0) {
+    if (currentTrackIndex === -1 && playlist.length > 0) playTrack(0);
+    fullscreenOverlay.classList.add('active');
+    syncNativePlayer();
+    invoke('update_lyrics_mode', { enabled: true }).catch(() => {});
+  }
+}
+
+function closeLyricsOverlay() {
+  fullscreenOverlay.classList.remove('active');
+  syncNativePlayer();
+  invoke('update_lyrics_mode', { enabled: false }).catch(() => {});
+}
+
 if (miniCover) {
   miniCover.style.cursor = 'pointer';
-  miniCover.addEventListener('click', () => {
-    if (currentTrackIndex !== -1) {
-      fullscreenOverlay.classList.add('active');
-    } else if (playlist.length > 0) {
-      playTrack(0);
-      fullscreenOverlay.classList.add('active');
-    }
-  });
+  miniCover.addEventListener('click', openLyricsOverlay);
 }
 
 if (likeCurrentBtn) {
@@ -1108,14 +1135,12 @@ if (likeCurrentBtn) {
   });
 }
 
-btnCloseFs.addEventListener('click', () => {
-  fullscreenOverlay.classList.remove('active');
-});
+btnCloseFs.addEventListener('click', closeLyricsOverlay);
 
 sidebarNowPlaying.addEventListener('click', (e) => {
   e.preventDefault();
   if (currentTrackIndex !== -1) {
-    fullscreenOverlay.classList.add('active');
+    openLyricsOverlay();
   } else {
     alert('Please play a song first.');
   }
@@ -1123,7 +1148,7 @@ sidebarNowPlaying.addEventListener('click', (e) => {
 
 sidebarTracks.addEventListener('click', (e) => {
   e.preventDefault();
-  fullscreenOverlay.classList.remove('active');
+  closeLyricsOverlay();
   setLibraryView('all');
 });
 
@@ -1210,6 +1235,45 @@ if (window.__TAURI__?.event?.listen) {
       case 'player-toggle': togglePlay(); break;
       case 'player-previous': playPrev(); break;
       case 'player-next': playNext(); break;
+      case 'player-shuffle':
+        isShuffle = !isShuffle;
+        shuffleBtn.classList.toggle('active', isShuffle);
+        if (currentTrackIndex >= 0) renderQueue();
+        syncNativePlayer();
+        break;
+      case 'player-repeat':
+        cycleRepeat();
+        break;
+      case 'player-like':
+        toggleLikeCurrent();
+        break;
+      case 'player-queue':
+        toggleQueuePanel();
+        break;
+      case 'player-open-lyrics':
+      case 'player-cover-click':
+        openLyricsOverlay();
+        break;
+      case 'player-seek':
+        if (audio && Number.isFinite(audio.duration) && payload.query) {
+          const targetPct = parseFloat(payload.query);
+          if (!isNaN(targetPct)) {
+            audio.currentTime = (targetPct / 100) * audio.duration;
+            syncNativePlayer();
+          }
+        }
+        break;
+      case 'player-volume':
+        if (audio && payload.query) {
+          const targetVol = parseFloat(payload.query);
+          if (!isNaN(targetVol)) {
+            audio.volume = Math.max(0, Math.min(1, targetVol / 100));
+            if (volumeBar) volumeBar.style.width = `${audio.volume * 100}%`;
+            if (fsVolumeBar) fsVolumeBar.style.width = `${audio.volume * 100}%`;
+            syncNativePlayer();
+          }
+        }
+        break;
     }
   });
 }

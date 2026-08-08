@@ -59,3 +59,13 @@ pub fn update_native_player(state: super::glass::NativePlayerState) {
         if let Some(ref manager) = *guard { manager.update_player_state(state); }
     }
 }
+
+pub fn update_lyrics_mode(enabled: bool) {
+    let _ = catch_unwind(AssertUnwindSafe(|| {
+        if let Ok(guard) = GLASS_MANAGER.lock() {
+            if let Some(ref manager) = *guard {
+                manager.set_lyrics_mode(enabled);
+            }
+        }
+    }));
+}
