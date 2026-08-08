@@ -1035,5 +1035,33 @@ sidebarTracks.addEventListener('click', (e) => {
   setLibraryView('all');
 });
 
+// Native macOS Keyboard Shortcuts listener (Space, Cmd+K, Cmd+1..4)
+window.addEventListener('keydown', (e) => {
+  const isInputActive = ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName);
+
+  // Cmd+K or Ctrl+K -> Focus Search
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    songSearchInput.focus();
+    songSearchInput.select();
+    return;
+  }
+
+  // Cmd+1..4 -> Switch Library Views
+  if ((e.metaKey || e.ctrlKey) && !isInputActive) {
+    if (e.key === '1') { e.preventDefault(); setLibraryView('all'); }
+    else if (e.key === '2') { e.preventDefault(); setLibraryView('artists'); }
+    else if (e.key === '3') { e.preventDefault(); setLibraryView('albums'); }
+    else if (e.key === '4') { e.preventDefault(); setLibraryView('liked'); }
+    return;
+  }
+
+  // Spacebar -> Toggle Play/Pause when not editing inputs
+  if (e.code === 'Space' && !isInputActive) {
+    e.preventDefault();
+    togglePlay();
+  }
+});
+
 // Restore the last selected native library on every launch (development and bundled).
 restoreSavedLibrary();
