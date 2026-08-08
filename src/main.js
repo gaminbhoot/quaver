@@ -1107,16 +1107,21 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
-// Native macOS Window Dragging fallback listener
+// Native macOS Window Dragging listener (Rust & WebKit invocation)
 const titlebarEl = document.getElementById('titlebar');
 if (titlebarEl) {
-  titlebarEl.addEventListener('pointerdown', (e) => {
+  const handleDragStart = (e) => {
     if (e.target.closest('button, input, select, a, [data-tauri-drag-region="false"]')) return;
     if (e.button === 0) {
-      window.__TAURI__?.window?.getCurrentWindow()?.startDragging?.()
-        .catch(() => window.__TAURI__?.webviewWindow?.getCurrentWebviewWindow()?.startDragging?.());
+      invoke('start_drag').catch(() => {
+        window.__TAURI__?.window?.getCurrentWindow()?.startDragging?.()
+          .catch(() => {});
+      });
     }
-  });
+  };
+
+  titlebarEl.addEventListener('pointerdown', handleDragStart);
+  titlebarEl.addEventListener('mousedown', handleDragStart);
 }
 
 // Restore the last selected native library on every launch (development and bundled).

@@ -145,6 +145,11 @@ fn read_lyrics_file(file_path: String) -> Result<String, String> {
     fs::read_to_string(&file_path).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn start_drag(window: tauri::Window) -> Result<(), String> {
+    window.start_dragging().map_err(|e| e.to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -156,7 +161,8 @@ pub fn run() {
             select_folder,
             get_saved_music_folder,
             scan_directory,
-            read_lyrics_file
+            read_lyrics_file,
+            start_drag
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
