@@ -60,6 +60,15 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* On macOS the AppKit sidebar owns these controls; preserve the hidden DOM
+   nodes so the existing JavaScript state and dynamic playlists remain intact. */
+html.native-sidebar-active .sidebar {
+  display: none;
+}
+html.native-sidebar-active .mini-player {
+  display: none;
+}
+
 /* Ensure all interactive controls opt out of macOS window dragging */
 button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item, .synced-line {
   -webkit-app-region: no-drag !important;

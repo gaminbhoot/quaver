@@ -11,6 +11,16 @@ function invoke(command, args) {
   return tauriInvoke(command, args);
 }
 
+function syncNativePlayer() {
+  invoke('update_native_player', {
+    state: {
+      title: currentTrackIndex >= 0 ? playlist[currentTrackIndex]?.title || 'Not Playing' : 'Not Playing',
+      artist: currentTrackIndex >= 0 ? playlist[currentTrackIndex]?.artist || '-' : '-',
+      playing: isPlaying,
+    },
+  }).catch(() => {});
+}
+
 // State
 let playlist = [];
 let currentTrackIndex = -1;
@@ -651,6 +661,7 @@ async function playTrack(index) {
   renderQueue();
   updateLikeButtonUI();
   updateMediaSession(track);
+  syncNativePlayer();
 }
 
 function updateMediaSession(track) {
@@ -983,12 +994,14 @@ audio.addEventListener('play', () => {
   isPlaying = true;
   updatePlayButtonUI();
   document.querySelector('.fullscreen-artwork-card')?.classList.add('playing');
+  syncNativePlayer();
 });
 
 audio.addEventListener('pause', () => {
   isPlaying = false;
   updatePlayButtonUI();
   document.querySelector('.fullscreen-artwork-card')?.classList.remove('playing');
+  syncNativePlayer();
 });
 
 audio.addEventListener('error', () => {
@@ -1114,6 +1127,7 @@ sidebarTracks.addEventListener('click', (e) => {
   setLibraryView('all');
 });
 
+
 // Native macOS Keyboard Shortcuts listener (Space, Cmd+K, Cmd+O, Cmd+1..4)
 window.addEventListener('keydown', (e) => {
   const isInputActive = ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName);
@@ -1168,3 +1182,45 @@ if (titlebarEl) {
 
 // Restore the last selected native library on every launch (development and bundled).
 restoreSavedLibrary();
+
+// Listen for native macOS menu bar item click
+if (window.__TAURI__?.event?.listen) {
+  window.__TAURI__.event.listen('native-sidebar-ready', () => {
+    document.documentElement.classList.add('native-sidebar-active');
+  });
+
+  window.__TAURI__.event.listen('trigger-add-folder', () => {
+    handleSelectFolder();
+  });
+
+  window.__TAURI__.event.listen('native-sidebar-action', ({ payload }) => {
+    switch (payload?.action) {
+      case 'all': sidebarTracks.click(); break;
+      case 'liked': sidebarLiked.click(); break;
+      case 'recent': sidebarRecent.click(); break;
+      case 'now-playing': sidebarNowPlaying.click(); break;
+      case 'artists': sidebarArtists.click(); break;
+      case 'albums': sidebarAlbums.click(); break;
+      case 'add-folder': handleSelectFolder(); break;
+      case 'search':
+        songSearchInput.value = payload.query || '';
+        songSearchQuery = songSearchInput.value;
+        renderPlaylist();
+        break;
+      case 'player-toggle': togglePlay(); break;
+      case 'player-previous': playPrev(); break;
+      case 'player-next': playNext(); break;
+    }
+  });
+}
+
+// The AppKit sidebar uses native autoresizing. This keeps its frame exact when
+// WebKit reports fullscreen/resize changes after a title-bar transition.
+window.addEventListener('resize', () => invoke('sync_native_sidebar').catch(() => {}));
+window.addEventListener('fullscreenchange', () => invoke('sync_native_sidebar').catch(() => {}));
+invoke('sync_native_sidebar')
+  .then(() => {
+    document.documentElement.classList.add('native-sidebar-active');
+    syncNativePlayer();
+  })
+  .catch(() => {});

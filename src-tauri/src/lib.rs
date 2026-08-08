@@ -4,8 +4,9 @@ use lofty::probe::Probe;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use walkdir::WalkDir;
+
 
 #[cfg(target_os = "macos")]
 pub mod macos;
@@ -153,10 +154,39 @@ fn start_drag(window: tauri::Window) -> Result<(), String> {
     window.start_dragging().map_err(|e| e.to_string())
 }
 
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn sync_native_sidebar(window: tauri::WebviewWindow) {
+    let _ = window.run_on_main_thread(|| macos::window::sync_native_sidebar());
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn update_native_player(state: macos::glass::NativePlayerState, window: tauri::WebviewWindow) {
+    let _ = window.run_on_main_thread(move || macos::window::update_native_player(state));
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn update_native_player(_state: serde_json::Value) {}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn sync_native_sidebar() {
+    // No-op on non-macOS platforms
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
-        .menu(|app| tauri::menu::Menu::default(app))
+        .menu(build_menu)
+        .on_menu_event(|app, event| {
+            if event.id() == "add_folder" {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.emit("trigger-add-folder", ());
+                }
+            }
+        })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -165,8 +195,77 @@ pub fn run() {
             get_saved_music_folder,
             scan_directory,
             read_lyrics_file,
-            start_drag
+            start_drag,
+            sync_native_sidebar,
+            update_native_player
         ])
+        .setup(|app| {
+            // Initialize native AppKit sidebar on the main window.
+            #[cfg(target_os = "macos")]
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    macos::window::initialize_native_sidebar(&window, app.handle().clone());
+                }
+            }
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Build the native macOS application menu.
+fn build_menu(app: &tauri::AppHandle) -> Result<tauri::menu::Menu<tauri::Wry>, tauri::Error> {
+    use tauri::menu::*;
+
+    let menu = Menu::new(app)?;
+
+    // App menu
+    let app_menu = Submenu::new(app, "Quaver", true)?;
+    app_menu.append(&PredefinedMenuItem::about(app, Some("About Quaver"), None)?)?;
+    app_menu.append(&PredefinedMenuItem::separator(app)?)?;
+    app_menu.append(&PredefinedMenuItem::services(app, None)?)?;
+    app_menu.append(&PredefinedMenuItem::separator(app)?)?;
+    app_menu.append(&PredefinedMenuItem::hide(app, None)?)?;
+    app_menu.append(&PredefinedMenuItem::hide_others(app, None)?)?;
+    app_menu.append(&PredefinedMenuItem::show_all(app, None)?)?;
+    app_menu.append(&PredefinedMenuItem::separator(app)?)?;
+    app_menu.append(&PredefinedMenuItem::quit(app, None)?)?;
+    menu.append(&app_menu)?;
+
+    // File menu
+    let file_menu = Submenu::new(app, "File", true)?;
+    file_menu.append(&MenuItem::with_id(
+        app,
+        "add_folder",
+        "Add Music Folder...",
+        true,
+        Some("CmdOrCtrl+O"),
+    )?)?;
+    menu.append(&file_menu)?;
+
+    // Edit menu (standard macOS)
+    let edit_menu = Submenu::new(app, "Edit", true)?;
+    edit_menu.append(&PredefinedMenuItem::undo(app, None)?)?;
+    edit_menu.append(&PredefinedMenuItem::redo(app, None)?)?;
+    edit_menu.append(&PredefinedMenuItem::separator(app)?)?;
+    edit_menu.append(&PredefinedMenuItem::cut(app, None)?)?;
+    edit_menu.append(&PredefinedMenuItem::copy(app, None)?)?;
+    edit_menu.append(&PredefinedMenuItem::paste(app, None)?)?;
+    edit_menu.append(&PredefinedMenuItem::select_all(app, None)?)?;
+    menu.append(&edit_menu)?;
+
+    // View menu
+    let view_menu = Submenu::new(app, "View", true)?;
+    view_menu.append(&PredefinedMenuItem::fullscreen(app, None)?)?;
+    menu.append(&view_menu)?;
+
+    // Window menu
+    let window_menu = Submenu::new(app, "Window", true)?;
+    window_menu.append(&PredefinedMenuItem::minimize(app, None)?)?;
+    window_menu.append(&PredefinedMenuItem::maximize(app, None)?)?;
+    window_menu.append(&PredefinedMenuItem::separator(app)?)?;
+    window_menu.append(&PredefinedMenuItem::close_window(app, None)?)?;
+    menu.append(&window_menu)?;
+
+    Ok(menu)
 }
