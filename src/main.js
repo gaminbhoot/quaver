@@ -1107,5 +1107,17 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
+// Native macOS Window Dragging fallback listener
+const titlebarEl = document.getElementById('titlebar');
+if (titlebarEl) {
+  titlebarEl.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('button, input, select, a, [data-tauri-drag-region="false"]')) return;
+    if (e.button === 0) {
+      window.__TAURI__?.window?.getCurrentWindow()?.startDragging?.()
+        .catch(() => window.__TAURI__?.webviewWindow?.getCurrentWebviewWindow()?.startDragging?.());
+    }
+  });
+}
+
 // Restore the last selected native library on every launch (development and bundled).
 restoreSavedLibrary();
