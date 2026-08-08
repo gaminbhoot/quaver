@@ -61,10 +61,12 @@ const lyricsContainer = document.getElementById('fullscreen-lyrics-container');
 const sidebarTracks = document.getElementById('sidebar-tracks');
 const sidebarNowPlaying = document.getElementById('sidebar-nowplaying');
 
-// Direct Native Rust Folder Picker Invocation
-importBtn.addEventListener('click', async (e) => {
-  e.preventDefault();
-  e.stopPropagation();
+// Direct Native Rust Folder Picker Handler
+async function handleSelectFolder(e) {
+  if (e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
 
   try {
     const folderPath = await invoke('select_folder');
@@ -72,10 +74,23 @@ importBtn.addEventListener('click', async (e) => {
       scanFolder(folderPath);
     }
   } catch (err) {
-    console.warn('Rust select_folder failed, falling back to input:', err);
+    console.warn('Rust select_folder failed, falling back to file input:', err);
     fallbackFolderInput.click();
   }
-});
+}
+
+// Bind Folder Buttons
+if (importBtn) {
+  importBtn.addEventListener('click', handleSelectFolder);
+}
+
+function bindEmptyStateButton() {
+  const emptyBtn = document.getElementById('empty-add-folder-btn');
+  if (emptyBtn) {
+    emptyBtn.addEventListener('click', handleSelectFolder);
+  }
+}
+bindEmptyStateButton();
 
 // Fallback HTML5 folder input change handler
 fallbackFolderInput.addEventListener('change', (event) => {
@@ -141,13 +156,20 @@ function renderPlaylist() {
   if (playlist.length === 0) {
     tracksListBody.innerHTML = `
       <tr class="empty-state">
-        <td colspan="5" style="text-align: center; padding: 4rem 1rem;">
+        <td colspan="5" style="text-align: center; padding: 5rem 1rem;">
           <div class="empty-icon">📁</div>
           <h3>No music loaded yet</h3>
-          <p>Click "Add Music Folder" to select your audio library.</p>
+          <p>Select your FLAC/ALAC library folder from your local disk or external hard drive.</p>
+          <div style="display: flex; justify-content: center; margin-top: 16px;">
+            <button id="empty-add-folder-btn" class="btn-primary-mac" style="padding: 10px 20px; font-size: 14px;">
+              <svg class="icon-svg" viewBox="0 0 24 24" style="width: 18px; height: 18px;"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
+              Select Music Folder
+            </button>
+          </div>
         </td>
       </tr>
     `;
+    bindEmptyStateButton();
     return;
   }
 

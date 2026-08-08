@@ -29,6 +29,12 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* Ensure all interactive controls opt out of macOS window dragging */
+button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item, .synced-line {
+  -webkit-app-region: no-drag !important;
+  app-region: no-drag !important;
+}
+
 /* Window Frame styling */
 .mac-window {
   width: 100vw;
@@ -55,12 +61,14 @@ body {
 
 .titlebar-spacer {
   flex: 1;
+  height: 100%;
 }
 
 .top-nav-controls {
   display: flex;
   align-items: center;
   gap: 12px;
+  z-index: 20;
 }
 
 .btn-primary-mac {
@@ -76,11 +84,15 @@ body {
   align-items: center;
   gap: 6px;
   cursor: pointer;
-  transition: opacity 0.2s ease;
+  transition: opacity 0.2s ease, transform 0.1s ease;
 }
 
 .btn-primary-mac:hover {
   opacity: 0.9;
+}
+
+.btn-primary-mac:active {
+  transform: scale(0.97);
 }
 
 .icon-svg {
@@ -127,6 +139,7 @@ body {
   font-weight: 500;
   border-radius: 6px;
   transition: all 0.2s ease;
+  cursor: pointer;
 }
 
 .sidebar-item:hover, .sidebar-item.active {
@@ -206,10 +219,10 @@ body {
 .col-duration { width: 80px; text-align: right; color: var(--muted-foreground); }
 
 /* Empty state design */
-.empty-state { pointer-events: none; }
+.empty-state { pointer-events: auto; }
 .empty-icon { font-size: 48px; margin-bottom: 16px; opacity: 0.5; }
 .empty-state h3 { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
-.empty-state p { color: var(--muted-foreground); font-size: 14px; }
+.empty-state p { color: var(--muted-foreground); font-size: 14px; margin-bottom: 16px; }
 
 /* Mini Player Bar */
 .mini-player {
@@ -531,7 +544,7 @@ body {
 .fullscreen-lyrics-content {
   height: 80%;
   width: 100%;
-  overflow-y: auto;
+  overflow-y.auto;
   padding-right: 20px;
   mask-image: linear-gradient(to bottom, transparent 0%, #000 15%, #000 85%, transparent 100%);
   -webkit-mask-image: linear-gradient(to bottom, transparent 0%, #000 15%, #000 85%, transparent 100%);
