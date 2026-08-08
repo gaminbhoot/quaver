@@ -575,18 +575,23 @@ async function playTrack(index) {
     return;
   }
 
+  let hasLyrics = false;
   if (track.lyricPath) {
     try {
       const lrcText = await invoke('read_lyrics_file', { filePath: track.lyricPath });
       lyrics = parseLRC(lrcText);
+      hasLyrics = lyrics.length > 0;
     } catch {
-      lyrics = generateMockLyrics(track);
+      lyrics = [];
+      hasLyrics = false;
     }
   } else {
-    lyrics = generateMockLyrics(track);
+    lyrics = [];
+    hasLyrics = false;
   }
   activeLyricIndex = -1;
   renderLyrics();
+  fullscreenOverlay.classList.toggle('no-lyrics', !hasLyrics);
 
   miniTitle.textContent = track.title;
   miniArtist.textContent = track.artist;
