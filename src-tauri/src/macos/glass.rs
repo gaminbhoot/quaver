@@ -453,30 +453,30 @@ impl NativeGlassManager {
                 if let Some(sv) = btn.superview() {
                     let sh = sv.bounds().size.height;
                     eprintln!("[traffic] close superview h={:.1} frame={:?}", sh, btn.frame());
-                    let ly = if (20.0..=40.0).contains(&sh) { sh - 28.0 } else { 4.0 };
+                    let ly = if (20.0..=40.0).contains(&sh) { sh - 34.0 } else { -2.0 };
                     btn.setFrameOrigin(NSPoint::new(SIDEBAR_INSET + 16.0, ly));
                 } else {
-                    btn.setFrameOrigin(NSPoint::new(SIDEBAR_INSET + 16.0, 4.0));
+                    btn.setFrameOrigin(NSPoint::new(SIDEBAR_INSET + 16.0, -2.0));
                 }
                 let _: () = msg_send![&**btn, setHidden: false];
             }
             if let Some(ref btn) = mini {
                 if let Some(sv) = btn.superview() {
                     let sh = sv.bounds().size.height;
-                    let ly = if (20.0..=40.0).contains(&sh) { sh - 28.0 } else { 4.0 };
+                    let ly = if (20.0..=40.0).contains(&sh) { sh - 34.0 } else { -2.0 };
                     btn.setFrameOrigin(NSPoint::new(SIDEBAR_INSET + 36.0, ly));
                 } else {
-                    btn.setFrameOrigin(NSPoint::new(SIDEBAR_INSET + 36.0, 4.0));
+                    btn.setFrameOrigin(NSPoint::new(SIDEBAR_INSET + 36.0, -2.0));
                 }
                 let _: () = msg_send![&**btn, setHidden: false];
             }
             if let Some(ref btn) = zoom {
                 if let Some(sv) = btn.superview() {
                     let sh = sv.bounds().size.height;
-                    let ly = if (20.0..=40.0).contains(&sh) { sh - 28.0 } else { 4.0 };
+                    let ly = if (20.0..=40.0).contains(&sh) { sh - 34.0 } else { -2.0 };
                     btn.setFrameOrigin(NSPoint::new(SIDEBAR_INSET + 56.0, ly));
                 } else {
-                    btn.setFrameOrigin(NSPoint::new(SIDEBAR_INSET + 56.0, 4.0));
+                    btn.setFrameOrigin(NSPoint::new(SIDEBAR_INSET + 56.0, -2.0));
                 }
                 let _: () = msg_send![&**btn, setHidden: false];
             }
