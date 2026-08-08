@@ -1,4 +1,42 @@
-import { formatTime, parseLRC, getNextTrackIndex, getPrevTrackIndex } from './audioUtils.js';
+// Inlined from audioUtils.js for Tauri asset protocol compatibility
+function formatTime(seconds) {
+  if (isNaN(seconds) || seconds < 0) return '0:00';
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
+}
+function parseLRC(text) {
+  if (!text || typeof text !== 'string') return [];
+  const lines = text.split('\n');
+  const result = [];
+  const timeReg = /\[(\d{2}):(\d{2})\.(\d{2,3})\]/;
+  for (let line of lines) {
+    const match = timeReg.exec(line);
+    if (match) {
+      const minutes = parseInt(match[1], 10);
+      const seconds = parseInt(match[2], 10);
+      const ms = parseInt(match[3], 10);
+      const time = minutes * 60 + seconds + (ms / (match[3].length === 3 ? 1000 : 100));
+      const lyricText = line.replace(timeReg, '').trim();
+      if (lyricText) result.push({ time, text: lyricText });
+    }
+  }
+  return result.sort((a, b) => a.time - b.time);
+}
+function getNextTrackIndex(currentIndex, totalTracks, isShuffle) {
+  if (totalTracks <= 0) return -1;
+  if (isShuffle) return Math.floor(Math.random() * totalTracks);
+  let nextIndex = currentIndex + 1;
+  if (nextIndex >= totalTracks) nextIndex = 0;
+  return nextIndex;
+}
+function getPrevTrackIndex(currentIndex, totalTracks) {
+  if (totalTracks <= 0) return -1;
+  let prevIndex = currentIndex - 1;
+  if (prevIndex < 0) prevIndex = totalTracks - 1;
+  return prevIndex;
+}
+
 
 const tauriInvoke = window.__TAURI__?.core?.invoke;
 const convertFileSrc = window.__TAURI_INTERNALS__?.convertFileSrc;
@@ -991,6 +1029,7 @@ closeQueueBtn.addEventListener('click', () => {
   queuePanel.setAttribute('aria-hidden', 'true');
 });
 
+let lastNativeSyncAt = 0;
 audio.addEventListener('timeupdate', () => {
   const percent = (audio.currentTime / audio.duration) * 100 || 0;
   progressBar.style.width = `${percent}%`;
@@ -1001,6 +1040,12 @@ audio.addEventListener('timeupdate', () => {
   if (Number.isFinite(audio.duration) && audio.duration - audio.currentTime < 12) preloadUpcomingTrack();
   if ('mediaSession' in navigator && Number.isFinite(audio.duration)) {
     navigator.mediaSession.setPositionState({ duration: audio.duration, position: audio.currentTime, playbackRate: audio.playbackRate });
+  }
+  // Throttled native player progress sync — don't flood Rust on every frame
+  const now = Date.now();
+  if (now - lastNativeSyncAt > 800) {
+    lastNativeSyncAt = now;
+    syncNativePlayer();
   }
 });
 
@@ -1245,10 +1290,18 @@ if (window.__TAURI__?.event?.listen) {
         cycleRepeat();
         break;
       case 'player-like':
-        toggleLikeCurrent();
+        if (currentTrackIndex !== -1 && playlist[currentTrackIndex]) {
+          toggleLikedTrack(playlist[currentTrackIndex]);
+          syncNativePlayer();
+        }
         break;
       case 'player-queue':
-        toggleQueuePanel();
+        if (queuePanel) {
+          const willOpen = !queuePanel.classList.contains('open');
+          if (willOpen) renderQueue();
+          queuePanel.classList.toggle('open', willOpen);
+          queuePanel.setAttribute('aria-hidden', willOpen ? 'false' : 'true');
+        }
         break;
       case 'player-open-lyrics':
       case 'player-cover-click':
@@ -1288,3 +1341,52 @@ invoke('sync_native_sidebar')
     syncNativePlayer();
   })
   .catch(() => {});
+
+// --- Dynamic App Icon OS Theme & Style Selector ---
+function updateAppIconStyle(selectedStyle) {
+  const selectElem = document.getElementById('app-icon-select');
+  const style = selectedStyle || (selectElem ? selectElem.value : null) || localStorage.getItem('quaver-icon-style') || 'auto';
+  localStorage.setItem('quaver-icon-style', style);
+
+  if (selectElem && selectElem.value !== style) {
+    selectElem.value = style;
+  }
+
+  let variant = style;
+  if (style === 'auto') {
+    const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    variant = isDark ? 'dark' : 'default';
+  }
+
+  if (tauriInvoke) {
+    invoke('set_app_icon_variant', { variant }).catch((err) => {
+      console.warn('[quaver] Failed to set app icon variant:', err);
+    });
+  }
+}
+
+if (window.matchMedia) {
+  const darkModeQuery = window.matchMedia('(prefers-color-scheme: dark)');
+  const handleThemeChange = () => {
+    const savedStyle = localStorage.getItem('quaver-icon-style') || 'auto';
+    if (savedStyle === 'auto') {
+      updateAppIconStyle('auto');
+    }
+  };
+  if (darkModeQuery.addEventListener) {
+    darkModeQuery.addEventListener('change', handleThemeChange);
+  } else if (darkModeQuery.addListener) {
+    darkModeQuery.addListener(handleThemeChange);
+  }
+}
+
+const appIconSelect = document.getElementById('app-icon-select');
+if (appIconSelect) {
+  const savedStyle = localStorage.getItem('quaver-icon-style') || 'auto';
+  appIconSelect.value = savedStyle;
+  appIconSelect.addEventListener('change', (e) => {
+    updateAppIconStyle(e.target.value);
+  });
+}
+updateAppIconStyle();
+

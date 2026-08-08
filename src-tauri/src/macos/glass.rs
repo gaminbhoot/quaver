@@ -228,6 +228,20 @@ impl NativeGlassManager {
             return Ok(());
         }
 
+        // Configure NSWindow for native chrome: hide title, make titlebar transparent,
+        // and allow full-size content so traffic lights sit in the native titlebar.
+        unsafe {
+            let _: () = msg_send![&*self._window, setTitleVisibility: 1i64];
+            let _: () = msg_send![&*self._window, setTitlebarAppearsTransparent: true];
+            // styleMask |= NSWindowStyleMaskFullSizeContentView (1 << 15)
+            let current_mask: usize = msg_send![&*self._window, styleMask];
+            let full_size: usize = 1 << 15;
+            let _: () = msg_send![&*self._window, setStyleMask: current_mask | full_size];
+            // Keep the window movable and traffic lights standard
+            let _: () = msg_send![&*self._window, setMovableByWindowBackground: false];
+            let _: () = msg_send![&*self._window, setHasShadow: true];
+        }
+
         // SAFETY: Wry has attached the WebView before Tauri setup runs.
         let parent = unsafe { self.webview.superview() }
             .ok_or_else(|| "[macos] WKWebView has no superview".to_string())?;
@@ -388,6 +402,16 @@ impl NativeGlassManager {
         queue_btn.setFrame(NSRect::new(NSPoint::new(self.player.bounds().size.width - 48.0, 24.0), NSSize::new(34.0, 34.0)));
         queue_btn.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMinXMargin | NSAutoresizingMaskOptions::ViewMinYMargin);
         content.addSubview(&queue_btn);
+
+        // Progress slider (seek) - centered bottom area with native NSSlider
+        self.player_progress_slider.setFrame(NSRect::new(NSPoint::new(74.0, 10.0), NSSize::new(self.player.bounds().size.width - 260.0, 14.0)));
+        self.player_progress_slider.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewMinYMargin);
+        content.addSubview(&self.player_progress_slider);
+
+        // Volume slider - right side small slider
+        self.player_volume_slider.setFrame(NSRect::new(NSPoint::new(self.player.bounds().size.width - 118.0, 8.0), NSSize::new(70.0, 14.0)));
+        self.player_volume_slider.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMinXMargin | NSAutoresizingMaskOptions::ViewMinYMargin);
+        content.addSubview(&self.player_volume_slider);
     }
 
     fn position_controls(&self) {
