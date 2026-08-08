@@ -32,7 +32,10 @@ fn scan_directory(dir_path: String) -> Vec<TrackMetadata> {
         if path.is_file() {
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                 let ext_lower = ext.to_lowercase();
-                if matches!(ext_lower.as_str(), "flac" | "m4a" | "alac" | "mp3" | "wav") {
+                if matches!(
+                    ext_lower.as_str(),
+                    "flac" | "m4a" | "alac" | "mp3" | "aac" | "wav" | "aiff" | "aif" | "ogg" | "opus" | "wma" | "ape" | "ac3" | "mka"
+                ) {
                     if let Ok(tagged_file) = Probe::open(path).and_then(|p| p.read()) {
                         let properties = tagged_file.properties();
                         let duration = properties.duration().as_secs_f64();

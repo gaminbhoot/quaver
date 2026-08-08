@@ -1,0 +1,8 @@
+model_list:
+  - model_name: claude-opus-5  # Or whichever Claude model your tool expects
+    litellm_params:
+      model: vertex_ai/gemini-3.5-flash  # Use vertex_ai/ prefix instead of gemini/
+      vertex_project: "project-892f22c5-cc7c-4cd7-a6b"  # Replace with your actual GCP Project ID
+      vertex_location: "global"        # Replace with your preferred Vertex region
+
+
