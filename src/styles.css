@@ -94,11 +94,11 @@ html.native-sidebar-active .mini-player,
 /* Unified macOS Native Window Integration */
 html.native-sidebar-active,
 html.native-sidebar-active body {
-  background: #121215;
+  background: #1c1c20;
 }
 
 html.native-sidebar-active .mac-window {
-  background: #121215;
+  background: #1c1c20;
   background-image: none;
   border: none;
   border-radius: 0;
@@ -131,53 +131,25 @@ html.native-sidebar-active .main-view {
   box-shadow: none;
 }
 
-/* Sticky gradual-blur header for main content — Apple Music style, also the window drag handle */
+/* Plain header for main content — draggable, no blur, same flat color as sidebar/content */
 .main-header {
-  display: none;
+  display: flex;
   position: sticky;
   top: 0;
   height: 56px;
   min-height: 56px;
   flex: 0 0 56px;
   z-index: 15;
+  background: #1c1c20;
+  border: none;
   -webkit-app-region: drag;
   app-region: drag;
   pointer-events: auto;
   overflow: hidden;
 }
 
-.main-header-blur {
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 140px;
-  pointer-events: none;
-  z-index: -1;
-  overflow: hidden;
-  -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.98) 45%, rgba(0,0,0,0.7) 72%, rgba(0,0,0,0) 100%);
-  mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.98) 45%, rgba(0,0,0,0.7) 72%, rgba(0,0,0,0) 100%);
-}
-
-.main-header-blur::before {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, rgba(28,28,32,0.98) 0%, rgba(28,28,32,0.85) 55%, rgba(28,28,32,0.45) 78%, rgba(28,28,32,0) 100%);
-  z-index: 1;
-}
-
-.main-header-blur .blur-step { position: absolute; top: 0; left: 0; right: 0; pointer-events: none; }
-.main-header-blur .blur-step-1 { height: 140px; backdrop-filter: blur(3px) saturate(110%); -webkit-backdrop-filter: blur(3px) saturate(110%); -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.6) 25%, rgba(0,0,0,0) 100%); mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.6) 25%, rgba(0,0,0,0) 100%); }
-.main-header-blur .blur-step-2 { height: 130px; backdrop-filter: blur(8px) saturate(125%); -webkit-backdrop-filter: blur(8px) saturate(125%); -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.7) 32%, rgba(0,0,0,0) 100%); mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.7) 32%, rgba(0,0,0,0) 100%); }
-.main-header-blur .blur-step-3 { height: 120px; backdrop-filter: blur(16px) saturate(140%); -webkit-backdrop-filter: blur(16px) saturate(140%); -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.75) 40%, rgba(0,0,0,0) 100%); mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.75) 40%, rgba(0,0,0,0) 100%); }
-.main-header-blur .blur-step-4 { height: 110px; backdrop-filter: blur(26px) saturate(155%); -webkit-backdrop-filter: blur(26px) saturate(155%); -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.82) 48%, rgba(0,0,0,0) 100%); mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.82) 48%, rgba(0,0,0,0) 100%); }
-.main-header-blur .blur-step-5 { height: 95px; backdrop-filter: blur(38px) saturate(170%); -webkit-backdrop-filter: blur(38px) saturate(170%); -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.88) 55%, rgba(0,0,0,0) 100%); mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.88) 55%, rgba(0,0,0,0) 100%); }
-.main-header-blur .blur-step-6 { height: 80px; backdrop-filter: blur(54px) saturate(185%); -webkit-backdrop-filter: blur(54px) saturate(185%); -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.92) 60%, rgba(0,0,0,0) 100%); mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.92) 60%, rgba(0,0,0,0) 100%); }
-.main-header-blur .blur-step-7 { height: 68px; backdrop-filter: blur(72px) saturate(205%); -webkit-backdrop-filter: blur(72px) saturate(205%); -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.96) 65%, rgba(0,0,0,0) 100%); mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.96) 65%, rgba(0,0,0,0) 100%); }
-.main-header-blur .blur-step-8 { height: 56px; backdrop-filter: blur(96px) saturate(220%) contrast(105%); -webkit-backdrop-filter: blur(96px) saturate(220%) contrast(105%); -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 75%, rgba(0,0,0,0) 100%); mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 75%, rgba(0,0,0,0) 100%); }
-
-html.native-sidebar-active .main-header { display: block; }
+.main-header-blur,
+.main-header-blur .blur-step { display: none !important; }
 
 /* Unified surface: WebView and library read as one macOS surface when native chrome owns the window */
 html.native-sidebar-active .table-container {
