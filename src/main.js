@@ -1,5 +1,6 @@
 import { invoke } from '@tauri-apps/api/core';
 import { open } from '@tauri-apps/plugin-dialog';
+import { formatTime, parseLRC, getNextTrackIndex, getPrevTrackIndex } from './audioUtils.js';
 
 // State
 let playlist = [];
@@ -13,8 +14,9 @@ let activeLyricIndex = -1;
 const audio = new Audio();
 audio.volume = 0.8;
 
-// DOM
+// DOM Elements
 const importBtn = document.getElementById('import-folder-btn');
+const fallbackFolderInput = document.getElementById('fallback-folder-input');
 const tracksListBody = document.getElementById('tracks-list-body');
 
 // Mini Player Controls
@@ -35,7 +37,7 @@ const volumeBarWrapper = document.getElementById('volume-bar-wrapper');
 const volumeBar = document.getElementById('volume-bar');
 const lyricsToggleBtn = document.getElementById('btn-lyrics-toggle');
 
-// Fullscreen Now Playing
+// Fullscreen Controls
 const fullscreenOverlay = document.getElementById('fullscreen-overlay');
 const fsBg = document.getElementById('fullscreen-bg');
 const fsWindowTitle = document.getElementById('fs-window-title');
@@ -60,8 +62,9 @@ const lyricsContainer = document.getElementById('fullscreen-lyrics-container');
 const sidebarTracks = document.getElementById('sidebar-tracks');
 const sidebarNowPlaying = document.getElementById('sidebar-nowplaying');
 
-// Native macOS Folder Picker via Tauri Dialog Plugin
-importBtn.addEventListener('click', async () => {
+// Native macOS Folder Picker via Tauri Dialog Plugin + Fallback
+importBtn.addEventListener('click', async (e) => {
+  e.stopPropagation();
   try {
     const selected = await open({
       directory: true,
@@ -71,10 +74,42 @@ importBtn.addEventListener('click', async () => {
 
     if (selected && typeof selected === 'string') {
       scanFolder(selected);
+    } else if (selected === null) {
+      // User cancelled
+    } else {
+      fallbackFolderInput.click();
     }
   } catch (err) {
-    console.error('Error opening folder dialog:', err);
+    console.warn('Tauri dialog failed, using fallback input:', err);
+    fallbackFolderInput.click();
   }
+});
+
+// Fallback HTML5 folder input change handler
+fallbackFolderInput.addEventListener('change', (event) => {
+  const files = Array.from(event.target.files);
+  const audioFiles = files.filter(file => 
+    /\.(flac|m4a|alac|mp3|aac|wav|aiff|aif|ogg|opus|wma|ape|ac3|mka)$/i.test(file.name)
+  );
+
+  if (audioFiles.length === 0) {
+    alert('No supported audio files found in selected folder.');
+    return;
+  }
+
+  playlist = audioFiles.map((file, idx) => ({
+    id: idx,
+    path: URL.createObjectURL(file),
+    title: file.name.replace(/\.[^/.]+$/, ''),
+    artist: 'Local Artist',
+    album: 'Local Album',
+    duration: 0,
+    format: file.name.split('.').pop().toUpperCase(),
+    cover: '',
+    lyricPath: null
+  }));
+
+  renderPlaylist();
 });
 
 // Invoke Rust Backend to Scan Directory
@@ -84,7 +119,7 @@ async function scanFolder(folderPath) {
       <td colspan="5" style="text-align: center; padding: 4rem 1rem;">
         <div class="empty-icon">⚡</div>
         <h3>Indexing folder with Rust core...</h3>
-        <p>Parsing FLAC & ALAC audio metadata high-speed.</p>
+        <p>Parsing audio metadata high-speed.</p>
       </td>
     </tr>
   `;
@@ -117,7 +152,7 @@ function renderPlaylist() {
         <td colspan="5" style="text-align: center; padding: 4rem 1rem;">
           <div class="empty-icon">📁</div>
           <h3>No music loaded yet</h3>
-          <p>Click "Add Music Folder" to select your FLAC/ALAC library.</p>
+          <p>Click "Add Music Folder" to select your audio library.</p>
         </td>
       </tr>
     `;
@@ -167,10 +202,13 @@ async function playTrack(index) {
     rows[currentTrackIndex].classList.add('playing');
   }
 
-  // Convert local file path to asset URL (or direct path)
-  audio.src = `https://asset.localhost/${encodeURIComponent(track.path)}`;
+  if (track.path.startsWith('blob:')) {
+    audio.src = track.path;
+  } else {
+    audio.src = `https://asset.localhost/${encodeURIComponent(track.path)}`;
+  }
+
   audio.play().catch(() => {
-    // Fallback URL
     audio.src = track.path;
     audio.play().catch(console.error);
   });
@@ -178,7 +216,6 @@ async function playTrack(index) {
   isPlaying = true;
   updatePlayButtonUI();
 
-  // Load lyrics via Rust IPC if lyricPath exists
   if (track.lyricPath) {
     try {
       const lrcText = await invoke('read_lyrics_file', { filePath: track.lyricPath });
@@ -192,40 +229,18 @@ async function playTrack(index) {
   activeLyricIndex = -1;
   renderLyrics();
 
-  // Mini Player UI
   miniTitle.textContent = track.title;
   miniArtist.textContent = track.artist;
   miniCover.style.backgroundImage = track.cover ? `url(${track.cover})` : 'none';
 
-  // Fullscreen UI
   fsWindowTitle.textContent = `Quaver - ${track.title} • ${track.artist} 🔊`;
   fsTrackTitle.textContent = track.title;
   fsTrackArtist.textContent = track.artist;
   fsCoverImage.style.backgroundImage = track.cover ? `url(${track.cover})` : 'none';
   fsBg.style.backgroundImage = track.cover ? `url(${track.cover})` : 'none';
   
-  document.querySelector('.fullscreen-artwork-card').classList.add('playing');
-}
-
-function parseLRC(text) {
-  const lines = text.split('\n');
-  const result = [];
-  const timeReg = /\[(\d{2}):(\d{2})\.(\d{2,3})\]/;
-
-  for (let line of lines) {
-    const match = timeReg.exec(line);
-    if (match) {
-      const minutes = parseInt(match[1]);
-      const seconds = parseInt(match[2]);
-      const ms = parseInt(match[3]);
-      const time = minutes * 60 + seconds + (ms / (match[3].length === 3 ? 1000 : 100));
-      const lyricText = line.replace(timeReg, '').trim();
-      if (lyricText) {
-        result.push({ time, text: lyricText });
-      }
-    }
-  }
-  return result.sort((a, b) => a.time - b.time);
+  const fsCard = document.querySelector('.fullscreen-artwork-card');
+  if (fsCard) fsCard.classList.add('playing');
 }
 
 function generateMockLyrics(track) {
@@ -233,7 +248,7 @@ function generateMockLyrics(track) {
     { time: 0, text: `🎶 Playing: ${track.title}` },
     { time: 3, text: `Artist: ${track.artist}` },
     { time: 6, text: `Album: ${track.album}` },
-    { time: 9, text: `[High-fidelity ${track.format} audio parsed natively with Rust lofty]` },
+    { time: 9, text: `[High-fidelity ${track.format} audio parsed natively]` },
     { time: 15, text: `Add a matching .lrc file in your music folder` },
     { time: 20, text: `with the exact same name as the audio file` },
     { time: 25, text: `to display beautiful scrolling synced lyrics.` },
@@ -304,14 +319,16 @@ function togglePlay() {
     return;
   }
 
+  const fsCard = document.querySelector('.fullscreen-artwork-card');
+
   if (isPlaying) {
     audio.pause();
     isPlaying = false;
-    document.querySelector('.fullscreen-artwork-card').classList.remove('playing');
+    if (fsCard) fsCard.classList.remove('playing');
   } else {
     audio.play();
     isPlaying = true;
-    document.querySelector('.fullscreen-artwork-card').classList.add('playing');
+    if (fsCard) fsCard.classList.add('playing');
   }
   updatePlayButtonUI();
 }
@@ -328,21 +345,13 @@ function updatePlayButtonUI() {
 
 function playNext() {
   if (playlist.length === 0) return;
-  let nextIndex = currentTrackIndex + 1;
-  if (isShuffle) {
-    nextIndex = Math.floor(Math.random() * playlist.length);
-  } else if (nextIndex >= playlist.length) {
-    nextIndex = 0;
-  }
+  const nextIndex = getNextTrackIndex(currentTrackIndex, playlist.length, isShuffle);
   playTrack(nextIndex);
 }
 
 function playPrev() {
   if (playlist.length === 0) return;
-  let prevIndex = currentTrackIndex - 1;
-  if (prevIndex < 0) {
-    prevIndex = playlist.length - 1;
-  }
+  const prevIndex = getPrevTrackIndex(currentTrackIndex, playlist.length);
   playTrack(prevIndex);
 }
 
@@ -448,10 +457,3 @@ sidebarTracks.addEventListener('click', (e) => {
   e.preventDefault();
   fullscreenOverlay.classList.remove('active');
 });
-
-function formatTime(seconds) {
-  if (isNaN(seconds)) return '0:00';
-  const m = Math.floor(seconds / 60);
-  const s = Math.floor(seconds % 60).toString().padStart(2, '0');
-  return `${m}:${s}`;
-}

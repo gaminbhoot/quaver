@@ -14,13 +14,14 @@
     <!-- Main App Container simulating native macOS window -->
     <div class="mac-window">
       <!-- Titlebar / Top Navigation Header -->
-      <div class="window-titlebar" data-tauri-drag-region id="titlebar">
-        <div class="titlebar-spacer"></div>
+      <div class="window-titlebar" id="titlebar">
+        <div class="titlebar-spacer" data-tauri-drag-region></div>
         <div class="top-nav-controls">
           <button id="import-folder-btn" class="btn-primary-mac">
             <svg class="icon-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
             Add Music Folder
           </button>
+          <input type="file" id="fallback-folder-input" webkitdirectory directory multiple style="display: none;" />
         </div>
       </div>
 
@@ -124,8 +125,8 @@
         <div class="fullscreen-bg" id="fullscreen-bg"></div>
         <div class="fullscreen-bg-overlay"></div>
 
-        <div class="fullscreen-header" data-tauri-drag-region>
-          <div class="fullscreen-window-title" id="fs-window-title">Quaver Music - Not Playing</div>
+        <div class="fullscreen-header">
+          <div class="fullscreen-window-title" data-tauri-drag-region id="fs-window-title">Quaver Music - Not Playing</div>
           <div class="fullscreen-controls">
             <button class="btn-icon btn-close-fs" id="btn-close-fs" title="Exit Fullscreen">
               <svg viewBox="0 0 24 24"><path fill="currentColor" d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
