@@ -70,7 +70,7 @@ const timeElapsed = document.getElementById('time-elapsed');
 const timeTotal = document.getElementById('time-total');
 const volumeBarWrapper = document.getElementById('volume-bar-wrapper');
 const volumeBar = document.getElementById('volume-bar');
-const lyricsToggleBtn = document.getElementById('btn-lyrics-toggle');
+const likeCurrentBtn = document.getElementById('btn-like-current');
 const queueBtn = document.getElementById('btn-queue');
 const speedBtn = document.getElementById('btn-speed');
 const queuePanel = document.getElementById('queue-panel');
@@ -368,7 +368,17 @@ function toggleLikedTrack(track) {
   const key = trackKey(track);
   likedTrackKeys.has(key) ? likedTrackKeys.delete(key) : likedTrackKeys.add(key);
   saveLibraryData('quaver-liked-tracks', [...likedTrackKeys]);
+  updateLikeButtonUI();
   renderPlaylist();
+}
+
+function updateLikeButtonUI() {
+  if (!likeCurrentBtn) return;
+  const currentTrack = playlist[currentTrackIndex];
+  const isLiked = currentTrack && likedTrackKeys.has(trackKey(currentTrack));
+  likeCurrentBtn.classList.toggle('active', !!isLiked);
+  likeCurrentBtn.style.color = isLiked ? 'var(--accent-light)' : '';
+  likeCurrentBtn.title = isLiked ? 'Unlike Song' : 'Like Song';
 }
 
 function addTrackToPlaylist(track) {
@@ -650,6 +660,7 @@ async function playTrack(index) {
   const fsCard = document.querySelector('.fullscreen-artwork-card');
   if (fsCard) fsCard.classList.add('playing');
   renderQueue();
+  updateLikeButtonUI();
   updateMediaSession(track);
 }
 
@@ -1056,9 +1067,25 @@ fsVolumeBarWrapper.addEventListener('click', (e) => {
   fsVolumeBar.style.width = `${percentage * 100}%`;
 });
 
-lyricsToggleBtn.addEventListener('click', () => {
-  fullscreenOverlay.classList.add('active');
-});
+if (miniCover) {
+  miniCover.style.cursor = 'pointer';
+  miniCover.addEventListener('click', () => {
+    if (currentTrackIndex !== -1) {
+      fullscreenOverlay.classList.add('active');
+    } else if (playlist.length > 0) {
+      playTrack(0);
+      fullscreenOverlay.classList.add('active');
+    }
+  });
+}
+
+if (likeCurrentBtn) {
+  likeCurrentBtn.addEventListener('click', () => {
+    if (currentTrackIndex !== -1 && playlist[currentTrackIndex]) {
+      toggleLikedTrack(playlist[currentTrackIndex]);
+    }
+  });
+}
 
 btnCloseFs.addEventListener('click', () => {
   fullscreenOverlay.classList.remove('active');

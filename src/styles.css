@@ -521,6 +521,14 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
   background-size: cover;
   background-position: center;
   box-shadow: 0 5px 14px rgba(0, 0, 0, 0.32), inset 0 0 0 1px rgba(255,255,255,.07);
+  cursor: pointer;
+  transition: transform 0.2s ease, filter 0.2s ease, box-shadow 0.2s ease;
+}
+
+.now-playing-cover:hover {
+  transform: scale(1.06);
+  filter: brightness(1.12);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.48), inset 0 0 0 1px rgba(255,255,255,.18);
 }
 
 .now-playing-meta {
