@@ -1,0 +1,23 @@
+/* Quaver macOS System Tokens & Theme Variables */
+:root {
+  --quaver-background: #0a0a0a;
+  --quaver-foreground: #f5f5f7;
+  --quaver-secondary-label: rgba(245, 245, 247, 0.68);
+  --quaver-tertiary-label: rgba(245, 245, 247, 0.42);
+  --quaver-separator: rgba(255, 255, 255, 0.10);
+  --quaver-radius-small: 8px;
+  --quaver-radius-medium: 12px;
+  --quaver-radius-large: 18px;
+  --quaver-radius-pill: 999px;
+  --quaver-sidebar-width: 240px;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --quaver-background: #f5f5f7;
+    --quaver-foreground: #1d1d1f;
+    --quaver-secondary-label: rgba(29, 29, 31, 0.68);
+    --quaver-tertiary-label: rgba(29, 29, 31, 0.42);
+    --quaver-separator: rgba(0, 0, 0, 0.10);
+  }
+}

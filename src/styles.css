@@ -1,3 +1,8 @@
+@import './styles/macos.css';
+@import './styles/glass.css';
+@import './styles/typography.css';
+@import './styles/layout.css';
+
 :root {
   --bg-app: #121215;
   --bg-sidebar: rgba(28, 28, 34, 0.76);
@@ -12,18 +17,6 @@
   --radius-window: 0px;
   --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", sans-serif;
   --font-lyrics: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
-
-  /* Quaver macOS System Tokens */
-  --quaver-background: #0d0d0f;
-  --quaver-foreground: #f5f5f7;
-  --quaver-secondary-label: rgba(245, 245, 247, 0.68);
-  --quaver-tertiary-label: rgba(245, 245, 247, 0.42);
-  --quaver-separator: rgba(255, 255, 255, 0.10);
-  --quaver-radius-small: 8px;
-  --quaver-radius-medium: 12px;
-  --quaver-radius-large: 18px;
-  --quaver-radius-pill: 999px;
-  --quaver-sidebar-width: 240px;
 }
 
 @media (prefers-color-scheme: light) {
@@ -238,19 +231,6 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
   background: var(--accent-strong);
   box-shadow: 0 4px 14px rgba(0, 122, 255, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.25);
   font-weight: 600;
-}
-
-.sidebar-item:hover {
-  background-color: var(--hover);
-  color: var(--foreground);
-}
-
-.sidebar-item:hover { transform: translateX(1px); }
-
-.sidebar-item.active {
-  color: #fff;
-  background: linear-gradient(90deg, rgba(10, 132, 255, 0.24), rgba(10, 132, 255, 0.08));
-  box-shadow: inset 2px 0 0 var(--accent-light);
 }
 
 /* Main Panel */

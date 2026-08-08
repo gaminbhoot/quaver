@@ -58,11 +58,17 @@
           </div>
           <div class="sidebar-section">
             <div class="sidebar-header">Browse</div>
-            <a href="#" class="sidebar-item" id="sidebar-artists">Artists</a>
-            <a href="#" class="sidebar-item" id="sidebar-albums">Albums</a>
+            <a href="#" class="sidebar-item" id="sidebar-artists" role="button">
+              <svg class="icon-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5.33-4-8-4z"/></svg>
+              Artists
+            </a>
+            <a href="#" class="sidebar-item" id="sidebar-albums" role="button">
+              <svg class="icon-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M4 6h16v2H4zm2-4h12v2H6zm-4 8h20v10H2z"/></svg>
+              Albums
+            </a>
           </div>
           <div class="sidebar-section playlists-section">
-            <div class="sidebar-header sidebar-header-with-action">Playlists <button class="sidebar-add" id="create-playlist-btn" title="New playlist">+</button></div>
+            <div class="sidebar-header sidebar-header-with-action">Playlists <button class="sidebar-add" id="create-playlist-btn" title="New playlist" aria-label="Create playlist">+</button></div>
             <div id="playlist-nav-list"></div>
           </div>
         </div>
@@ -89,8 +95,10 @@
               <table class="tracks-table">
                 <thead>
                   <tr>
+                    <th class="col-num">#</th>
                     <th class="col-title">Title</th>
                     <th class="col-album">Album</th>
+                    <th class="col-type">Format</th>
                     <th class="col-duration">Duration</th>
                   </tr>
                 </thead>

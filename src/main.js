@@ -1037,23 +1037,43 @@ function seekFromProgressBar(event, wrapper) {
   syncLyrics(audio.currentTime);
 }
 
-progressBarWrapper.addEventListener('click', (event) => seekFromProgressBar(event, progressBarWrapper));
-fsProgressBarWrapper.addEventListener('click', (event) => seekFromProgressBar(event, fsProgressBarWrapper));
+function attachSliderDrag(wrapper, callback) {
+  let isDragging = false;
+  const update = (e) => {
+    const rect = wrapper.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    callback(pct, e);
+  };
+  wrapper.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    isDragging = true;
+    wrapper.setPointerCapture?.(e.pointerId);
+    update(e);
+  });
+  wrapper.addEventListener('pointermove', (e) => { if (isDragging) update(e); });
+  const stop = (e) => {
+    if (isDragging) {
+      isDragging = false;
+      wrapper.releasePointerCapture?.(e.pointerId);
+    }
+  };
+  wrapper.addEventListener('pointerup', stop);
+  wrapper.addEventListener('pointercancel', stop);
+}
 
-volumeBarWrapper.addEventListener('click', (e) => {
-  const rect = volumeBarWrapper.getBoundingClientRect();
-  const percentage = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-  audio.volume = percentage;
-  volumeBar.style.width = `${percentage * 100}%`;
-  fsVolumeBar.style.width = `${percentage * 100}%`;
+attachSliderDrag(progressBarWrapper, (pct, e) => seekFromProgressBar(e, progressBarWrapper));
+attachSliderDrag(fsProgressBarWrapper, (pct, e) => seekFromProgressBar(e, fsProgressBarWrapper));
+
+attachSliderDrag(volumeBarWrapper, (pct) => {
+  audio.volume = pct;
+  volumeBar.style.width = `${pct * 100}%`;
+  fsVolumeBar.style.width = `${pct * 100}%`;
 });
 
-fsVolumeBarWrapper.addEventListener('click', (e) => {
-  const rect = fsVolumeBarWrapper.getBoundingClientRect();
-  const percentage = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-  audio.volume = percentage;
-  volumeBar.style.width = `${percentage * 100}%`;
-  fsVolumeBar.style.width = `${percentage * 100}%`;
+attachSliderDrag(fsVolumeBarWrapper, (pct) => {
+  audio.volume = pct;
+  volumeBar.style.width = `${pct * 100}%`;
+  fsVolumeBar.style.width = `${pct * 100}%`;
 });
 
 if (miniCover) {
@@ -1095,9 +1115,16 @@ sidebarTracks.addEventListener('click', (e) => {
   setLibraryView('all');
 });
 
-// Native macOS Keyboard Shortcuts listener (Space, Cmd+K, Cmd+1..4)
+// Native macOS Keyboard Shortcuts listener (Space, Cmd+K, Cmd+O, Cmd+1..4)
 window.addEventListener('keydown', (e) => {
   const isInputActive = ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName);
+
+  // Cmd+O or Cmd+Shift+O -> Select Music Folder
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'o') {
+    e.preventDefault();
+    handleSelectFolder();
+    return;
+  }
 
   // Cmd+K or Ctrl+K -> Focus Search
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {

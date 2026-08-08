@@ -7,6 +7,9 @@ use std::path::{Path, PathBuf};
 use tauri::Manager;
 use walkdir::WalkDir;
 
+#[cfg(target_os = "macos")]
+pub mod macos;
+
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TrackMetadata {
     pub path: String,
