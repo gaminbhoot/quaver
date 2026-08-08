@@ -251,6 +251,18 @@ function renderPlaylist() {
   }
 
   updateLibraryHeading();
+
+  // Pane Switching: Switch view pane based on libraryView type
+  const paneTracks = document.getElementById('pane-tracks');
+  const paneAlbums = document.getElementById('pane-albums');
+  const paneArtists = document.getElementById('pane-artists');
+
+  if (paneTracks && paneAlbums && paneArtists) {
+    paneTracks.classList.toggle('active', libraryView.type !== 'artists' && libraryView.type !== 'albums');
+    paneAlbums.classList.toggle('active', libraryView.type === 'albums');
+    paneArtists.classList.toggle('active', libraryView.type === 'artists');
+  }
+
   if (libraryView.type === 'artists' || libraryView.type === 'albums') {
     renderBrowseGroups(libraryView.type);
     return;
@@ -380,19 +392,51 @@ function renderBrowseGroups(type) {
   const groups = [...new Map(playlist.map((track) => [track[field] || `Unknown ${type === 'artists' ? 'Artist' : 'Album'}`, null])).keys()]
     .filter((name) => !songSearchQuery.trim() || name.toLowerCase().includes(songSearchQuery.trim().toLowerCase()))
     .sort((a, b) => a.localeCompare(b));
-  tracksListBody.innerHTML = '';
-  if (!groups.length) {
-    tracksListBody.innerHTML = '<tr class="empty-state"><td colspan="5" style="text-align:center; padding:5rem 1rem;"><h3>Nothing to browse yet</h3><p>Add a music folder to build your library.</p></td></tr>';
-    return;
+
+  if (type === 'albums') {
+    const grid = document.getElementById('albums-grid-container');
+    if (!grid) return;
+    grid.innerHTML = '';
+    if (!groups.length) {
+      grid.innerHTML = '<p style="color:var(--muted-foreground); padding:2rem 0;">No albums found.</p>';
+      return;
+    }
+    groups.forEach((albumName) => {
+      const tracks = playlist.filter((track) => (track.album || 'Unknown Album') === albumName);
+      const cover = tracks.find((t) => t.cover)?.cover || '';
+      const artist = tracks[0]?.artist || 'Unknown Artist';
+      const card = document.createElement('div');
+      card.className = 'album-card';
+      card.innerHTML = `
+        <div class="album-card-cover" style="${cover ? `background-image: url(${cover});` : ''}"></div>
+        <div class="album-card-title">${escapeHtml(albumName)}</div>
+        <div class="album-card-subtitle">${escapeHtml(artist)} • ${tracks.length} song${tracks.length === 1 ? '' : 's'}</div>
+      `;
+      card.addEventListener('click', () => setLibraryView('album', albumName));
+      grid.appendChild(card);
+    });
+  } else if (type === 'artists') {
+    const grid = document.getElementById('artists-grid-container');
+    if (!grid) return;
+    grid.innerHTML = '';
+    if (!groups.length) {
+      grid.innerHTML = '<p style="color:var(--muted-foreground); padding:2rem 0;">No artists found.</p>';
+      return;
+    }
+    groups.forEach((artistName) => {
+      const tracks = playlist.filter((track) => (track.artist || 'Unknown Artist') === artistName);
+      const cover = tracks.find((t) => t.cover)?.cover || '';
+      const card = document.createElement('div');
+      card.className = 'artist-card';
+      card.innerHTML = `
+        <div class="artist-card-cover" style="${cover ? `background-image: url(${cover});` : ''}"></div>
+        <div class="artist-card-name">${escapeHtml(artistName)}</div>
+        <div class="artist-card-subtitle">${tracks.length} song${tracks.length === 1 ? '' : 's'}</div>
+      `;
+      card.addEventListener('click', () => setLibraryView('artist', artistName));
+      grid.appendChild(card);
+    });
   }
-  groups.forEach((name, groupIndex) => {
-    const tracks = playlist.filter((track) => (track[field] || `Unknown ${type === 'artists' ? 'Artist' : 'Album'}`) === name);
-    const row = document.createElement('tr');
-    row.className = 'browse-row';
-    row.innerHTML = `<td class="col-num">${groupIndex + 1}</td><td class="col-title"><div class="browse-name">${escapeHtml(name)}<span>${tracks.length} song${tracks.length === 1 ? '' : 's'}</span></div></td><td class="col-album">${type === 'albums' ? escapeHtml(tracks[0]?.artist || 'Unknown Artist') : ''}</td><td class="col-type">Browse</td><td class="col-duration">›</td>`;
-    row.addEventListener('click', () => setLibraryView(type === 'artists' ? 'artist' : 'album', name));
-    tracksListBody.appendChild(row);
-  });
 }
 
 function ensureQueue(index = currentTrackIndex) {
