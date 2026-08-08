@@ -964,12 +964,14 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
 
 .queue-panel {
   position: absolute;
-  z-index: 30;
+  z-index: 120;
   right: 18px;
-  bottom: 82px;
+  bottom: 110px;
   width: min(360px, calc(100vw - 36px));
-  max-height: min(570px, calc(100vh - 130px));
+  max-height: min(520px, calc(100vh - 160px));
   padding: 18px;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   border: 1px solid rgba(255,255,255,.13);
   border-radius: 17px;
@@ -986,7 +988,7 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
 .queue-panel h2 { margin: 2px 0 0; color:#fff; font-size:20px; letter-spacing:-.03em; }
 .queue-eyebrow { color: #a1a1aa; font-size:10px; font-weight:700; letter-spacing:.11em; }
 .queue-help { margin: 10px 0 12px; color:#9c9ca4; font-size:12px; }
-.queue-list { overflow:auto; max-height:430px; padding-right:2px; }
+.queue-list { flex: 1; min-height: 0; overflow-y: auto; padding-right: 2px; }
 .queue-empty { color:#a1a1aa; padding: 20px 0; text-align:center; }
 .queue-item { width:100%; display:grid; grid-template-columns:16px 36px 1fr 16px; gap:9px; align-items:center; padding:8px 5px; border:0; border-radius:10px; background:transparent; color:#e4e4e7; text-align:left; cursor:pointer; }
 .queue-item:hover, .queue-item.current { background:rgba(255,255,255,.09); }
