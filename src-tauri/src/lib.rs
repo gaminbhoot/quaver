@@ -3,7 +3,8 @@ use lofty::prelude::*;
 use lofty::probe::Probe;
 use serde::{Deserialize, Serialize};
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use tauri::Manager;
 use walkdir::WalkDir;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
@@ -18,12 +19,46 @@ pub struct TrackMetadata {
     pub lyric_path: Option<String>,
 }
 
+#[derive(Serialize, Deserialize)]
+struct LibraryConfig {
+    music_folder: String,
+}
+
+fn library_config_path(app: &tauri::AppHandle) -> Result<PathBuf, String> {
+    let app_data_dir = app.path().app_data_dir().map_err(|error| error.to_string())?;
+    fs::create_dir_all(&app_data_dir).map_err(|error| error.to_string())?;
+    Ok(app_data_dir.join("library.json"))
+}
+
+fn save_music_folder(app: &tauri::AppHandle, folder: &Path) -> Result<(), String> {
+    let config = LibraryConfig {
+        music_folder: folder.to_string_lossy().to_string(),
+    };
+    let contents = serde_json::to_vec_pretty(&config).map_err(|error| error.to_string())?;
+    fs::write(library_config_path(app)?, contents).map_err(|error| error.to_string())
+}
+
 #[tauri::command]
-fn select_folder() -> Option<String> {
+fn select_folder(app: tauri::AppHandle) -> Option<String> {
     rfd::FileDialog::new()
         .set_title("Select Music Folder (Local or External Drive)")
         .pick_folder()
-        .map(|p| p.to_string_lossy().to_string())
+        .map(|folder| {
+            // This is intentionally best-effort: choosing a folder should still work
+            // even if the local preference cannot be written for some reason.
+            if let Err(error) = save_music_folder(&app, &folder) {
+                eprintln!("Could not save music folder preference: {error}");
+            }
+            folder.to_string_lossy().to_string()
+        })
+}
+
+#[tauri::command]
+fn get_saved_music_folder(app: tauri::AppHandle) -> Option<String> {
+    let contents = fs::read(library_config_path(&app).ok()?).ok()?;
+    let config: LibraryConfig = serde_json::from_slice(&contents).ok()?;
+    let folder = Path::new(&config.music_folder);
+    folder.is_dir().then(|| config.music_folder)
 }
 
 #[tauri::command]
@@ -116,7 +151,12 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![select_folder, scan_directory, read_lyrics_file])
+        .invoke_handler(tauri::generate_handler![
+            select_folder,
+            get_saved_music_folder,
+            scan_directory,
+            read_lyrics_file
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

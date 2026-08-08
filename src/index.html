@@ -16,6 +16,12 @@
       <!-- Titlebar / Top Navigation Header -->
       <div class="window-titlebar" id="titlebar">
         <div class="titlebar-spacer" data-tauri-drag-region></div>
+        <div class="app-identity" data-tauri-drag-region aria-label="Quaver">
+          <span class="app-identity-mark" aria-hidden="true">
+            <svg viewBox="0 0 24 24"><path fill="currentColor" d="M12 2.5a9.5 9.5 0 1 0 9.5 9.5A9.51 9.51 0 0 0 12 2.5Zm0 2a7.5 7.5 0 1 1-7.5 7.5A7.51 7.51 0 0 1 12 4.5Zm-1.2 3v7.1a2.8 2.8 0 1 0 1.4 2.4V10h3.5V7.5Z"/></svg>
+          </span>
+          <span>Quaver</span>
+        </div>
         <div class="top-nav-controls">
           <button id="import-folder-btn" class="btn-primary-mac">
             <svg class="icon-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M19 13h-6v6h-2v-6H5v-2h6V5h2v6h6v2z"/></svg>
@@ -35,17 +41,51 @@
               <svg class="icon-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z"/></svg>
               All Songs
             </a>
+            <a href="#" class="sidebar-item" id="sidebar-liked">
+              <svg class="icon-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12 21.35l-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09C13.09 3.81 14.76 3 16.5 3 19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54L12 21.35z"/></svg>
+              Liked Songs
+            </a>
+            <a href="#" class="sidebar-item" id="sidebar-recent">
+              <svg class="icon-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M13 3a9 9 0 1 0 8.94 10H20a7 7 0 1 1-2.05-4.95L15 11h7V4l-2.63 2.63A8.96 8.96 0 0 0 13 3zm-1 5v5l4 2.4.75-1.23-3.25-1.92V8H12z"/></svg>
+              Recently Played
+            </a>
             <a href="#" class="sidebar-item" id="sidebar-nowplaying">
               <svg class="icon-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M12 2c5.52 0 10 4.48 10 10s-4.48 10-10 10S2 17.52 2 12 6.48 2 12 2zm0 2c-4.42 0-8 3.58-8 8s3.58 8 8 8 8-3.58 8-8-3.58-8-8-8zm-2 4.5l6 3.5-6 3.5v-7z"/></svg>
               Now Playing
             </a>
+          </div>
+          <div class="sidebar-section">
+            <div class="sidebar-header">Browse</div>
+            <a href="#" class="sidebar-item" id="sidebar-artists">Artists</a>
+            <a href="#" class="sidebar-item" id="sidebar-albums">Albums</a>
+          </div>
+          <div class="sidebar-section playlists-section">
+            <div class="sidebar-header sidebar-header-with-action">Playlists <button class="sidebar-add" id="create-playlist-btn" title="New playlist">+</button></div>
+            <div id="playlist-nav-list"></div>
           </div>
         </div>
 
         <!-- Main Content Area -->
         <div class="main-view" id="main-view">
           <div class="view-pane active" id="pane-tracks">
-            <h1 class="view-title">All Songs</h1>
+            <div class="library-heading">
+              <div>
+                <p class="view-eyebrow" id="library-eyebrow">Library</p>
+                <h1 class="view-title" id="library-view-title">All Songs</h1>
+              </div>
+              <div class="library-actions">
+                <label class="library-select-label">Filter
+                  <select id="library-filter-select" class="library-select"><option value="all">All</option><option value="flac">FLAC</option><option value="lossless">Lossless</option></select>
+                </label>
+                <label class="library-select-label">Sort
+                  <select id="library-sort-select" class="library-select"><option value="title">Title</option><option value="artist">Artist</option><option value="album">Album</option><option value="recent">Recently added</option></select>
+                </label>
+              <label class="song-search" for="song-search-input">
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="m21.71 20.29-4.4-4.4A8.92 8.92 0 0 0 19 10.5a9 9 0 1 0-9 9 8.92 8.92 0 0 0 5.39-1.69l4.4 4.4 1.92-1.92zM4 10.5a6.5 6.5 0 1 1 6.5 6.5A6.51 6.51 0 0 1 4 10.5z"/></svg>
+                <input id="song-search-input" type="search" placeholder="Search songs, artists, albums…" autocomplete="off" />
+              </label>
+              </div>
+            </div>
             <div class="table-container">
               <table class="tracks-table">
                 <thead>
@@ -117,6 +157,10 @@
           <button class="btn-icon" id="btn-lyrics-toggle" title="Show Lyrics">
             <svg viewBox="0 0 24 24"><path fill="currentColor" d="M19 3H5c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h14c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm-2 14H7v-2h10v2zm0-4H7v-2h10v2zm0-4H7V7h10v2z"/></svg>
           </button>
+          <button class="btn-icon" id="btn-queue" title="Up Next">
+            <svg viewBox="0 0 24 24"><path fill="currentColor" d="M3 6h18v2H3V6zm0 5h12v2H3v-2zm0 5h12v2H3v-2zm15-5v-3l4 4-4 4v-3h-4v-2h4z"/></svg>
+          </button>
+          <button class="playback-speed" id="btn-speed" title="Playback speed">1×</button>
           <div class="volume-container">
             <svg class="icon-svg" viewBox="0 0 24 24"><path fill="currentColor" d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
             <div class="volume-bar-wrapper" id="volume-bar-wrapper">
@@ -125,6 +169,15 @@
           </div>
         </div>
       </div>
+
+      <aside class="queue-panel" id="queue-panel" aria-label="Up next" aria-hidden="true">
+        <div class="queue-panel-header">
+          <div><span class="queue-eyebrow">PLAYBACK</span><h2>Up Next</h2></div>
+          <button class="btn-icon" id="btn-close-queue" title="Close queue"><svg viewBox="0 0 24 24"><path fill="currentColor" d="m18.3 5.7-1.4-1.4L12 9.2 7.1 4.3 5.7 5.7l4.9 4.9-4.9 4.9 1.4 1.4 4.9-4.9 4.9 4.9 1.4-1.4-4.9-4.9 4.9-4.9z"/></svg></button>
+        </div>
+        <p class="queue-help">Drag tracks to change their order.</p>
+        <div class="queue-list" id="queue-list"></div>
+      </aside>
 
       <!-- Fullscreen Synced Lyrics View (Monochrome Design) -->
       <div class="fullscreen-overlay" id="fullscreen-overlay">
