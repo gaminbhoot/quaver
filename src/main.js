@@ -1,5 +1,4 @@
 import { invoke } from '@tauri-apps/api/core';
-import { open } from '@tauri-apps/plugin-dialog';
 import { formatTime, parseLRC, getNextTrackIndex, getPrevTrackIndex } from './audioUtils.js';
 
 // State
@@ -62,25 +61,18 @@ const lyricsContainer = document.getElementById('fullscreen-lyrics-container');
 const sidebarTracks = document.getElementById('sidebar-tracks');
 const sidebarNowPlaying = document.getElementById('sidebar-nowplaying');
 
-// Native macOS Folder Picker via Tauri Dialog Plugin + Fallback
+// Direct Native Rust Folder Picker Invocation
 importBtn.addEventListener('click', async (e) => {
+  e.preventDefault();
   e.stopPropagation();
-  try {
-    const selected = await open({
-      directory: true,
-      multiple: false,
-      title: 'Select Music Folder (Local or External Drive)'
-    });
 
-    if (selected && typeof selected === 'string') {
-      scanFolder(selected);
-    } else if (selected === null) {
-      // User cancelled
-    } else {
-      fallbackFolderInput.click();
+  try {
+    const folderPath = await invoke('select_folder');
+    if (folderPath && typeof folderPath === 'string') {
+      scanFolder(folderPath);
     }
   } catch (err) {
-    console.warn('Tauri dialog failed, using fallback input:', err);
+    console.warn('Rust select_folder failed, falling back to input:', err);
     fallbackFolderInput.click();
   }
 });

@@ -19,6 +19,14 @@ pub struct TrackMetadata {
 }
 
 #[tauri::command]
+fn select_folder() -> Option<String> {
+    rfd::FileDialog::new()
+        .set_title("Select Music Folder (Local or External Drive)")
+        .pick_folder()
+        .map(|p| p.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 fn scan_directory(dir_path: String) -> Vec<TrackMetadata> {
     let mut tracks = Vec::new();
     let root = Path::new(&dir_path);
@@ -108,7 +116,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
-        .invoke_handler(tauri::generate_handler![scan_directory, read_lyrics_file])
+        .invoke_handler(tauri::generate_handler![select_folder, scan_directory, read_lyrics_file])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
