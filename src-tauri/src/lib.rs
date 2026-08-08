@@ -4,8 +4,12 @@ use lofty::probe::Probe;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Path, PathBuf};
-use tauri::Manager;
+use tauri::{Emitter, Manager};
 use walkdir::WalkDir;
+
+
+#[cfg(target_os = "macos")]
+pub mod macos;
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct TrackMetadata {
@@ -61,6 +65,35 @@ fn get_saved_music_folder(app: tauri::AppHandle) -> Option<String> {
     folder.is_dir().then(|| config.music_folder)
 }
 
+fn find_folder_cover(track_path: &Path) -> Option<String> {
+    let parent = track_path.parent()?;
+    let cover_names = [
+        "cover.jpg", "cover.jpeg", "cover.png", "cover.webp",
+        "folder.jpg", "folder.jpeg", "folder.png", "folder.webp",
+        "album.jpg", "album.jpeg", "album.png", "album.webp",
+        "front.jpg", "front.jpeg", "front.png", "front.webp",
+        "Cover.jpg", "Cover.jpeg", "Cover.png",
+        "Folder.jpg", "Folder.jpeg", "Folder.png",
+        "Album.jpg", "Front.jpg"
+    ];
+    for name in cover_names {
+        let candidate = parent.join(name);
+        if candidate.is_file() {
+            if let Ok(bytes) = fs::read(&candidate) {
+                let ext = candidate.extension().and_then(|e| e.to_str()).unwrap_or("jpeg");
+                let mime = match ext.to_lowercase().as_str() {
+                    "png" => "image/png",
+                    "webp" => "image/webp",
+                    _ => "image/jpeg",
+                };
+                let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                return Some(format!("data:{mime};base64,{b64}"));
+            }
+        }
+    }
+    None
+}
+
 #[tauri::command]
 fn scan_directory(dir_path: String) -> Vec<TrackMetadata> {
     let mut tracks = Vec::new();
@@ -105,12 +138,17 @@ fn scan_directory(dir_path: String) -> Vec<TrackMetadata> {
                                 }
                             }
 
-                            // Extract Picture
-                            if let Some(pic) = tag.pictures().first() {
+                            // Extract Picture (Primary tag or any tag)
+                            if let Some(pic) = tag.pictures().first().or_else(|| tagged_file.tags().iter().find_map(|t| t.pictures().first())) {
                                 let mime = pic.mime_type().map(|m| m.as_str()).unwrap_or("image/jpeg");
                                 let b64 = base64::engine::general_purpose::STANDARD.encode(pic.data());
                                 cover_data_url = Some(format!("data:{};base64,{}", mime, b64));
                             }
+                        }
+
+                        // Folder artwork fallback if no embedded picture was found in tags
+                        if cover_data_url.is_none() {
+                            cover_data_url = find_folder_cover(path);
                         }
 
                         // Check for matching .lrc file
@@ -145,9 +183,52 @@ fn read_lyrics_file(file_path: String) -> Result<String, String> {
     fs::read_to_string(&file_path).map_err(|e| e.to_string())
 }
 
+#[tauri::command]
+fn start_drag(window: tauri::Window) -> Result<(), String> {
+    window.start_dragging().map_err(|e| e.to_string())
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn sync_native_sidebar(window: tauri::WebviewWindow) {
+    let _ = window.run_on_main_thread(|| macos::window::sync_native_sidebar());
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn update_native_player(state: macos::glass::NativePlayerState, window: tauri::WebviewWindow) {
+    let _ = window.run_on_main_thread(move || macos::window::update_native_player(state));
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn update_lyrics_mode(enabled: bool, window: tauri::WebviewWindow) {
+    let _ = window.run_on_main_thread(move || macos::window::update_lyrics_mode(enabled));
+}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn sync_native_sidebar() {}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn update_native_player(_state: serde_json::Value) {}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn update_lyrics_mode(_enabled: bool) {}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .menu(build_menu)
+        .on_menu_event(|app, event| {
+            if event.id() == "add_folder" {
+                if let Some(window) = app.get_webview_window("main") {
+                    let _ = window.emit("trigger-add-folder", ());
+                }
+            }
+        })
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
@@ -155,8 +236,79 @@ pub fn run() {
             select_folder,
             get_saved_music_folder,
             scan_directory,
-            read_lyrics_file
+            read_lyrics_file,
+            start_drag,
+            sync_native_sidebar,
+            update_native_player,
+            update_lyrics_mode
         ])
+        .setup(|app| {
+            // Initialize native AppKit sidebar on the main window.
+            #[cfg(target_os = "macos")]
+            {
+                if let Some(window) = app.get_webview_window("main") {
+                    macos::window::initialize_native_sidebar(&window, app.handle().clone());
+                }
+            }
+            Ok(())
+        })
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+/// Build the native macOS application menu.
+fn build_menu(app: &tauri::AppHandle) -> Result<tauri::menu::Menu<tauri::Wry>, tauri::Error> {
+    use tauri::menu::*;
+
+    let menu = Menu::new(app)?;
+
+    // App menu
+    let app_menu = Submenu::new(app, "Quaver", true)?;
+    app_menu.append(&PredefinedMenuItem::about(app, Some("About Quaver"), None)?)?;
+    app_menu.append(&PredefinedMenuItem::separator(app)?)?;
+    app_menu.append(&PredefinedMenuItem::services(app, None)?)?;
+    app_menu.append(&PredefinedMenuItem::separator(app)?)?;
+    app_menu.append(&PredefinedMenuItem::hide(app, None)?)?;
+    app_menu.append(&PredefinedMenuItem::hide_others(app, None)?)?;
+    app_menu.append(&PredefinedMenuItem::show_all(app, None)?)?;
+    app_menu.append(&PredefinedMenuItem::separator(app)?)?;
+    app_menu.append(&PredefinedMenuItem::quit(app, None)?)?;
+    menu.append(&app_menu)?;
+
+    // File menu
+    let file_menu = Submenu::new(app, "File", true)?;
+    file_menu.append(&MenuItem::with_id(
+        app,
+        "add_folder",
+        "Add Music Folder...",
+        true,
+        Some("CmdOrCtrl+O"),
+    )?)?;
+    menu.append(&file_menu)?;
+
+    // Edit menu (standard macOS)
+    let edit_menu = Submenu::new(app, "Edit", true)?;
+    edit_menu.append(&PredefinedMenuItem::undo(app, None)?)?;
+    edit_menu.append(&PredefinedMenuItem::redo(app, None)?)?;
+    edit_menu.append(&PredefinedMenuItem::separator(app)?)?;
+    edit_menu.append(&PredefinedMenuItem::cut(app, None)?)?;
+    edit_menu.append(&PredefinedMenuItem::copy(app, None)?)?;
+    edit_menu.append(&PredefinedMenuItem::paste(app, None)?)?;
+    edit_menu.append(&PredefinedMenuItem::select_all(app, None)?)?;
+    menu.append(&edit_menu)?;
+
+    // View menu
+    let view_menu = Submenu::new(app, "View", true)?;
+    view_menu.append(&PredefinedMenuItem::fullscreen(app, None)?)?;
+    menu.append(&view_menu)?;
+
+    // Window menu
+    let window_menu = Submenu::new(app, "Window", true)?;
+    window_menu.append(&PredefinedMenuItem::minimize(app, None)?)?;
+    window_menu.append(&PredefinedMenuItem::maximize(app, None)?)?;
+    window_menu.append(&PredefinedMenuItem::separator(app)?)?;
+    window_menu.append(&PredefinedMenuItem::close_window(app, None)?)?;
+    menu.append(&window_menu)?;
+
+    Ok(menu)
 }

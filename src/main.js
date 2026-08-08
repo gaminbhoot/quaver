@@ -1,4 +1,42 @@
-import { formatTime, parseLRC, getNextTrackIndex, getPrevTrackIndex } from './audioUtils.js';
+// Inlined from audioUtils.js for Tauri asset protocol compatibility
+function formatTime(seconds) {
+  if (isNaN(seconds) || seconds < 0) return '0:00';
+  const m = Math.floor(seconds / 60);
+  const s = Math.floor(seconds % 60).toString().padStart(2, '0');
+  return `${m}:${s}`;
+}
+function parseLRC(text) {
+  if (!text || typeof text !== 'string') return [];
+  const lines = text.split('\n');
+  const result = [];
+  const timeReg = /\[(\d{2}):(\d{2})\.(\d{2,3})\]/;
+  for (let line of lines) {
+    const match = timeReg.exec(line);
+    if (match) {
+      const minutes = parseInt(match[1], 10);
+      const seconds = parseInt(match[2], 10);
+      const ms = parseInt(match[3], 10);
+      const time = minutes * 60 + seconds + (ms / (match[3].length === 3 ? 1000 : 100));
+      const lyricText = line.replace(timeReg, '').trim();
+      if (lyricText) result.push({ time, text: lyricText });
+    }
+  }
+  return result.sort((a, b) => a.time - b.time);
+}
+function getNextTrackIndex(currentIndex, totalTracks, isShuffle) {
+  if (totalTracks <= 0) return -1;
+  if (isShuffle) return Math.floor(Math.random() * totalTracks);
+  let nextIndex = currentIndex + 1;
+  if (nextIndex >= totalTracks) nextIndex = 0;
+  return nextIndex;
+}
+function getPrevTrackIndex(currentIndex, totalTracks) {
+  if (totalTracks <= 0) return -1;
+  let prevIndex = currentIndex - 1;
+  if (prevIndex < 0) prevIndex = totalTracks - 1;
+  return prevIndex;
+}
+
 
 const tauriInvoke = window.__TAURI__?.core?.invoke;
 const convertFileSrc = window.__TAURI_INTERNALS__?.convertFileSrc;
@@ -11,6 +49,29 @@ function invoke(command, args) {
   return tauriInvoke(command, args);
 }
 
+function syncNativePlayer() {
+  const track = currentTrackIndex >= 0 ? playlist[currentTrackIndex] : null;
+  const isLiked = track ? likedTrackKeys.has(trackKey(track)) : false;
+  const progressPct = (audio && audio.duration && Number.isFinite(audio.duration)) ? (audio.currentTime / audio.duration) * 100 : 0;
+  const volPct = audio ? audio.volume * 100 : 100;
+  const inLyrics = fullscreenOverlay?.classList.contains('active') || false;
+
+  invoke('update_native_player', {
+    state: {
+      title: track?.title || 'Not Playing',
+      artist: track?.artist || '-',
+      playing: isPlaying,
+      cover: track?.cover || '',
+      liked: isLiked,
+      shuffle: isShuffle,
+      repeat: repeatMode,
+      progress: progressPct,
+      volume: volPct,
+      in_lyrics_mode: inLyrics,
+    },
+  }).catch(() => {});
+}
+
 // State
 let playlist = [];
 let currentTrackIndex = -1;
@@ -19,8 +80,6 @@ let isShuffle = false;
 let repeatMode = 'off';
 let playbackQueue = [];
 let queueDragIndex = null;
-let playbackSpeedIndex = 0;
-const playbackSpeeds = [1, 1.25, 1.5, 2];
 let lyrics = [];
 let activeLyricIndex = -1;
 let lastPlaybackErrorSource = '';
@@ -70,9 +129,8 @@ const timeElapsed = document.getElementById('time-elapsed');
 const timeTotal = document.getElementById('time-total');
 const volumeBarWrapper = document.getElementById('volume-bar-wrapper');
 const volumeBar = document.getElementById('volume-bar');
-const lyricsToggleBtn = document.getElementById('btn-lyrics-toggle');
+const likeCurrentBtn = document.getElementById('btn-like-current');
 const queueBtn = document.getElementById('btn-queue');
-const speedBtn = document.getElementById('btn-speed');
 const queuePanel = document.getElementById('queue-panel');
 const queueList = document.getElementById('queue-list');
 const closeQueueBtn = document.getElementById('btn-close-queue');
@@ -251,6 +309,18 @@ function renderPlaylist() {
   }
 
   updateLibraryHeading();
+
+  // Pane Switching: Switch view pane based on libraryView type
+  const paneTracks = document.getElementById('pane-tracks');
+  const paneAlbums = document.getElementById('pane-albums');
+  const paneArtists = document.getElementById('pane-artists');
+
+  if (paneTracks && paneAlbums && paneArtists) {
+    paneTracks.classList.toggle('active', libraryView.type !== 'artists' && libraryView.type !== 'albums');
+    paneAlbums.classList.toggle('active', libraryView.type === 'albums');
+    paneArtists.classList.toggle('active', libraryView.type === 'artists');
+  }
+
   if (libraryView.type === 'artists' || libraryView.type === 'albums') {
     renderBrowseGroups(libraryView.type);
     return;
@@ -294,7 +364,6 @@ function renderPlaylist() {
 
     const isLiked = likedTrackKeys.has(trackKey(track));
     row.innerHTML = `
-      <td class="col-num">${index + 1}</td>
       <td class="col-title">
         <div class="track-cell">
           ${track.cover ? `<img src="${track.cover}" style="width: 28px; height: 28px; border-radius: 4px; object-fit: cover;" />` : `<div style="width: 28px; height: 28px; border-radius: 4px; background-color:#27272a;"></div>`}
@@ -356,7 +425,17 @@ function toggleLikedTrack(track) {
   const key = trackKey(track);
   likedTrackKeys.has(key) ? likedTrackKeys.delete(key) : likedTrackKeys.add(key);
   saveLibraryData('quaver-liked-tracks', [...likedTrackKeys]);
+  updateLikeButtonUI();
   renderPlaylist();
+}
+
+function updateLikeButtonUI() {
+  if (!likeCurrentBtn) return;
+  const currentTrack = playlist[currentTrackIndex];
+  const isLiked = currentTrack && likedTrackKeys.has(trackKey(currentTrack));
+  likeCurrentBtn.classList.toggle('active', !!isLiked);
+  likeCurrentBtn.style.color = isLiked ? 'var(--accent-light)' : '';
+  likeCurrentBtn.title = isLiked ? 'Unlike Song' : 'Like Song';
 }
 
 function addTrackToPlaylist(track) {
@@ -380,19 +459,51 @@ function renderBrowseGroups(type) {
   const groups = [...new Map(playlist.map((track) => [track[field] || `Unknown ${type === 'artists' ? 'Artist' : 'Album'}`, null])).keys()]
     .filter((name) => !songSearchQuery.trim() || name.toLowerCase().includes(songSearchQuery.trim().toLowerCase()))
     .sort((a, b) => a.localeCompare(b));
-  tracksListBody.innerHTML = '';
-  if (!groups.length) {
-    tracksListBody.innerHTML = '<tr class="empty-state"><td colspan="5" style="text-align:center; padding:5rem 1rem;"><h3>Nothing to browse yet</h3><p>Add a music folder to build your library.</p></td></tr>';
-    return;
+
+  if (type === 'albums') {
+    const grid = document.getElementById('albums-grid-container');
+    if (!grid) return;
+    grid.innerHTML = '';
+    if (!groups.length) {
+      grid.innerHTML = '<p style="color:var(--muted-foreground); padding:2rem 0;">No albums found.</p>';
+      return;
+    }
+    groups.forEach((albumName) => {
+      const tracks = playlist.filter((track) => (track.album || 'Unknown Album') === albumName);
+      const cover = tracks.find((t) => t.cover)?.cover || '';
+      const artist = tracks[0]?.artist || 'Unknown Artist';
+      const card = document.createElement('div');
+      card.className = 'album-card';
+      card.innerHTML = `
+        <div class="album-card-cover" style="${cover ? `background-image: url(${cover});` : ''}"></div>
+        <div class="album-card-title">${escapeHtml(albumName)}</div>
+        <div class="album-card-subtitle">${escapeHtml(artist)} • ${tracks.length} song${tracks.length === 1 ? '' : 's'}</div>
+      `;
+      card.addEventListener('click', () => setLibraryView('album', albumName));
+      grid.appendChild(card);
+    });
+  } else if (type === 'artists') {
+    const grid = document.getElementById('artists-grid-container');
+    if (!grid) return;
+    grid.innerHTML = '';
+    if (!groups.length) {
+      grid.innerHTML = '<p style="color:var(--muted-foreground); padding:2rem 0;">No artists found.</p>';
+      return;
+    }
+    groups.forEach((artistName) => {
+      const tracks = playlist.filter((track) => (track.artist || 'Unknown Artist') === artistName);
+      const cover = tracks.find((t) => t.cover)?.cover || '';
+      const card = document.createElement('div');
+      card.className = 'artist-card';
+      card.innerHTML = `
+        <div class="artist-card-cover" style="${cover ? `background-image: url(${cover});` : ''}"></div>
+        <div class="artist-card-name">${escapeHtml(artistName)}</div>
+        <div class="artist-card-subtitle">${tracks.length} song${tracks.length === 1 ? '' : 's'}</div>
+      `;
+      card.addEventListener('click', () => setLibraryView('artist', artistName));
+      grid.appendChild(card);
+    });
   }
-  groups.forEach((name, groupIndex) => {
-    const tracks = playlist.filter((track) => (track[field] || `Unknown ${type === 'artists' ? 'Artist' : 'Album'}`) === name);
-    const row = document.createElement('tr');
-    row.className = 'browse-row';
-    row.innerHTML = `<td class="col-num">${groupIndex + 1}</td><td class="col-title"><div class="browse-name">${escapeHtml(name)}<span>${tracks.length} song${tracks.length === 1 ? '' : 's'}</span></div></td><td class="col-album">${type === 'albums' ? escapeHtml(tracks[0]?.artist || 'Unknown Artist') : ''}</td><td class="col-type">Browse</td><td class="col-duration">›</td>`;
-    row.addEventListener('click', () => setLibraryView(type === 'artists' ? 'artist' : 'album', name));
-    tracksListBody.appendChild(row);
-  });
 }
 
 function ensureQueue(index = currentTrackIndex) {
@@ -451,13 +562,6 @@ function setRepeatMode(mode) {
 
 function cycleRepeat() {
   setRepeatMode(repeatMode === 'off' ? 'all' : repeatMode === 'all' ? 'one' : 'off');
-}
-
-function cyclePlaybackSpeed() {
-  playbackSpeedIndex = (playbackSpeedIndex + 1) % playbackSpeeds.length;
-  audio.playbackRate = playbackSpeeds[playbackSpeedIndex];
-  speedBtn.textContent = `${playbackSpeeds[playbackSpeedIndex]}×`;
-  speedBtn.classList.toggle('active', playbackSpeeds[playbackSpeedIndex] !== 1);
 }
 
 function escapeHtml(value) {
@@ -595,7 +699,13 @@ async function playTrack(index) {
 
   miniTitle.textContent = track.title;
   miniArtist.textContent = track.artist;
-  miniCover.style.backgroundImage = track.cover ? `url(${track.cover})` : 'none';
+  if (track.cover) {
+    miniCover.style.backgroundImage = `url(${track.cover})`;
+    miniCover.classList.add('has-cover');
+  } else {
+    miniCover.style.backgroundImage = 'none';
+    miniCover.classList.remove('has-cover');
+  }
 
   fsWindowTitle.textContent = `Quaver - ${track.title} • ${track.artist} 🔊`;
   fsTrackTitle.textContent = track.title;
@@ -606,7 +716,9 @@ async function playTrack(index) {
   const fsCard = document.querySelector('.fullscreen-artwork-card');
   if (fsCard) fsCard.classList.add('playing');
   renderQueue();
+  updateLikeButtonUI();
   updateMediaSession(track);
+  syncNativePlayer();
 }
 
 function updateMediaSession(track) {
@@ -907,7 +1019,6 @@ fsShuffleBtn.addEventListener('click', () => {
 
 repeatBtn.addEventListener('click', cycleRepeat);
 fsRepeatBtn.addEventListener('click', cycleRepeat);
-speedBtn.addEventListener('click', cyclePlaybackSpeed);
 queueBtn.addEventListener('click', () => {
   renderQueue();
   queuePanel.classList.add('open');
@@ -918,6 +1029,7 @@ closeQueueBtn.addEventListener('click', () => {
   queuePanel.setAttribute('aria-hidden', 'true');
 });
 
+let lastNativeSyncAt = 0;
 audio.addEventListener('timeupdate', () => {
   const percent = (audio.currentTime / audio.duration) * 100 || 0;
   progressBar.style.width = `${percent}%`;
@@ -928,6 +1040,12 @@ audio.addEventListener('timeupdate', () => {
   if (Number.isFinite(audio.duration) && audio.duration - audio.currentTime < 12) preloadUpcomingTrack();
   if ('mediaSession' in navigator && Number.isFinite(audio.duration)) {
     navigator.mediaSession.setPositionState({ duration: audio.duration, position: audio.currentTime, playbackRate: audio.playbackRate });
+  }
+  // Throttled native player progress sync — don't flood Rust on every frame
+  const now = Date.now();
+  if (now - lastNativeSyncAt > 800) {
+    lastNativeSyncAt = now;
+    syncNativePlayer();
   }
 });
 
@@ -940,12 +1058,14 @@ audio.addEventListener('play', () => {
   isPlaying = true;
   updatePlayButtonUI();
   document.querySelector('.fullscreen-artwork-card')?.classList.add('playing');
+  syncNativePlayer();
 });
 
 audio.addEventListener('pause', () => {
   isPlaying = false;
   updatePlayButtonUI();
   document.querySelector('.fullscreen-artwork-card')?.classList.remove('playing');
+  syncNativePlayer();
 });
 
 audio.addEventListener('error', () => {
@@ -993,37 +1113,79 @@ function seekFromProgressBar(event, wrapper) {
   syncLyrics(audio.currentTime);
 }
 
-progressBarWrapper.addEventListener('click', (event) => seekFromProgressBar(event, progressBarWrapper));
-fsProgressBarWrapper.addEventListener('click', (event) => seekFromProgressBar(event, fsProgressBarWrapper));
+function attachSliderDrag(wrapper, callback) {
+  let isDragging = false;
+  const update = (e) => {
+    const rect = wrapper.getBoundingClientRect();
+    const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    callback(pct, e);
+  };
+  wrapper.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    isDragging = true;
+    wrapper.setPointerCapture?.(e.pointerId);
+    update(e);
+  });
+  wrapper.addEventListener('pointermove', (e) => { if (isDragging) update(e); });
+  const stop = (e) => {
+    if (isDragging) {
+      isDragging = false;
+      wrapper.releasePointerCapture?.(e.pointerId);
+    }
+  };
+  wrapper.addEventListener('pointerup', stop);
+  wrapper.addEventListener('pointercancel', stop);
+}
 
-volumeBarWrapper.addEventListener('click', (e) => {
-  const rect = volumeBarWrapper.getBoundingClientRect();
-  const percentage = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-  audio.volume = percentage;
-  volumeBar.style.width = `${percentage * 100}%`;
-  fsVolumeBar.style.width = `${percentage * 100}%`;
+attachSliderDrag(progressBarWrapper, (pct, e) => seekFromProgressBar(e, progressBarWrapper));
+attachSliderDrag(fsProgressBarWrapper, (pct, e) => seekFromProgressBar(e, fsProgressBarWrapper));
+
+attachSliderDrag(volumeBarWrapper, (pct) => {
+  audio.volume = pct;
+  volumeBar.style.width = `${pct * 100}%`;
+  fsVolumeBar.style.width = `${pct * 100}%`;
 });
 
-fsVolumeBarWrapper.addEventListener('click', (e) => {
-  const rect = fsVolumeBarWrapper.getBoundingClientRect();
-  const percentage = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-  audio.volume = percentage;
-  volumeBar.style.width = `${percentage * 100}%`;
-  fsVolumeBar.style.width = `${percentage * 100}%`;
+attachSliderDrag(fsVolumeBarWrapper, (pct) => {
+  audio.volume = pct;
+  volumeBar.style.width = `${pct * 100}%`;
+  fsVolumeBar.style.width = `${pct * 100}%`;
 });
 
-lyricsToggleBtn.addEventListener('click', () => {
-  fullscreenOverlay.classList.add('active');
-});
+function openLyricsOverlay() {
+  if (currentTrackIndex !== -1 || playlist.length > 0) {
+    if (currentTrackIndex === -1 && playlist.length > 0) playTrack(0);
+    fullscreenOverlay.classList.add('active');
+    syncNativePlayer();
+    invoke('update_lyrics_mode', { enabled: true }).catch(() => {});
+  }
+}
 
-btnCloseFs.addEventListener('click', () => {
+function closeLyricsOverlay() {
   fullscreenOverlay.classList.remove('active');
-});
+  syncNativePlayer();
+  invoke('update_lyrics_mode', { enabled: false }).catch(() => {});
+}
+
+if (miniCover) {
+  miniCover.style.cursor = 'pointer';
+  miniCover.addEventListener('click', openLyricsOverlay);
+}
+
+if (likeCurrentBtn) {
+  likeCurrentBtn.addEventListener('click', () => {
+    if (currentTrackIndex !== -1 && playlist[currentTrackIndex]) {
+      toggleLikedTrack(playlist[currentTrackIndex]);
+    }
+  });
+}
+
+btnCloseFs.addEventListener('click', closeLyricsOverlay);
 
 sidebarNowPlaying.addEventListener('click', (e) => {
   e.preventDefault();
   if (currentTrackIndex !== -1) {
-    fullscreenOverlay.classList.add('active');
+    openLyricsOverlay();
   } else {
     alert('Please play a song first.');
   }
@@ -1031,9 +1193,200 @@ sidebarNowPlaying.addEventListener('click', (e) => {
 
 sidebarTracks.addEventListener('click', (e) => {
   e.preventDefault();
-  fullscreenOverlay.classList.remove('active');
+  closeLyricsOverlay();
   setLibraryView('all');
 });
 
+
+// Native macOS Keyboard Shortcuts listener (Space, Cmd+K, Cmd+O, Cmd+1..4)
+window.addEventListener('keydown', (e) => {
+  const isInputActive = ['INPUT', 'TEXTAREA'].includes(document.activeElement?.tagName);
+
+  // Cmd+O or Cmd+Shift+O -> Select Music Folder
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'o') {
+    e.preventDefault();
+    handleSelectFolder();
+    return;
+  }
+
+  // Cmd+K or Ctrl+K -> Focus Search
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+    e.preventDefault();
+    songSearchInput.focus();
+    songSearchInput.select();
+    return;
+  }
+
+  // Cmd+1..4 -> Switch Library Views
+  if ((e.metaKey || e.ctrlKey) && !isInputActive) {
+    if (e.key === '1') { e.preventDefault(); setLibraryView('all'); }
+    else if (e.key === '2') { e.preventDefault(); setLibraryView('artists'); }
+    else if (e.key === '3') { e.preventDefault(); setLibraryView('albums'); }
+    else if (e.key === '4') { e.preventDefault(); setLibraryView('liked'); }
+    return;
+  }
+
+  // Spacebar -> Toggle Play/Pause when not editing inputs
+  if (e.code === 'Space' && !isInputActive) {
+    e.preventDefault();
+    togglePlay();
+  }
+});
+
+// Native macOS Window Dragging listener (Rust & WebKit invocation)
+const titlebarEl = document.getElementById('titlebar');
+if (titlebarEl) {
+  const handleDragStart = (e) => {
+    if (e.target.closest('button, input, select, a, [data-tauri-drag-region="false"]')) return;
+    if (e.button === 0) {
+      invoke('start_drag').catch(() => {
+        window.__TAURI__?.window?.getCurrentWindow()?.startDragging?.()
+          .catch(() => {});
+      });
+    }
+  };
+
+  titlebarEl.addEventListener('pointerdown', handleDragStart);
+  titlebarEl.addEventListener('mousedown', handleDragStart);
+}
+
 // Restore the last selected native library on every launch (development and bundled).
 restoreSavedLibrary();
+
+// Listen for native macOS menu bar item click
+if (window.__TAURI__?.event?.listen) {
+  window.__TAURI__.event.listen('native-sidebar-ready', () => {
+    document.documentElement.classList.add('native-sidebar-active');
+  });
+
+  window.__TAURI__.event.listen('trigger-add-folder', () => {
+    handleSelectFolder();
+  });
+
+  window.__TAURI__.event.listen('native-sidebar-action', ({ payload }) => {
+    switch (payload?.action) {
+      case 'all': sidebarTracks.click(); break;
+      case 'liked': sidebarLiked.click(); break;
+      case 'recent': sidebarRecent.click(); break;
+      case 'now-playing': sidebarNowPlaying.click(); break;
+      case 'artists': sidebarArtists.click(); break;
+      case 'albums': sidebarAlbums.click(); break;
+      case 'add-folder': handleSelectFolder(); break;
+      case 'search':
+        songSearchInput.value = payload.query || '';
+        songSearchQuery = songSearchInput.value;
+        renderPlaylist();
+        break;
+      case 'player-toggle': togglePlay(); break;
+      case 'player-previous': playPrev(); break;
+      case 'player-next': playNext(); break;
+      case 'player-shuffle':
+        isShuffle = !isShuffle;
+        shuffleBtn.classList.toggle('active', isShuffle);
+        if (currentTrackIndex >= 0) renderQueue();
+        syncNativePlayer();
+        break;
+      case 'player-repeat':
+        cycleRepeat();
+        break;
+      case 'player-like':
+        if (currentTrackIndex !== -1 && playlist[currentTrackIndex]) {
+          toggleLikedTrack(playlist[currentTrackIndex]);
+          syncNativePlayer();
+        }
+        break;
+      case 'player-queue':
+        if (queuePanel) {
+          const willOpen = !queuePanel.classList.contains('open');
+          if (willOpen) renderQueue();
+          queuePanel.classList.toggle('open', willOpen);
+          queuePanel.setAttribute('aria-hidden', willOpen ? 'false' : 'true');
+        }
+        break;
+      case 'player-open-lyrics':
+      case 'player-cover-click':
+        openLyricsOverlay();
+        break;
+      case 'player-seek':
+        if (audio && Number.isFinite(audio.duration) && payload.query) {
+          const targetPct = parseFloat(payload.query);
+          if (!isNaN(targetPct)) {
+            audio.currentTime = (targetPct / 100) * audio.duration;
+            syncNativePlayer();
+          }
+        }
+        break;
+      case 'player-volume':
+        if (audio && payload.query) {
+          const targetVol = parseFloat(payload.query);
+          if (!isNaN(targetVol)) {
+            audio.volume = Math.max(0, Math.min(1, targetVol / 100));
+            if (volumeBar) volumeBar.style.width = `${audio.volume * 100}%`;
+            if (fsVolumeBar) fsVolumeBar.style.width = `${audio.volume * 100}%`;
+            syncNativePlayer();
+          }
+        }
+        break;
+    }
+  });
+}
+
+// The AppKit sidebar uses native autoresizing. This keeps its frame exact when
+// WebKit reports fullscreen/resize changes after a title-bar transition.
+window.addEventListener('resize', () => invoke('sync_native_sidebar').catch(() => {}));
+window.addEventListener('fullscreenchange', () => invoke('sync_native_sidebar').catch(() => {}));
+invoke('sync_native_sidebar')
+  .then(() => {
+    document.documentElement.classList.add('native-sidebar-active');
+    syncNativePlayer();
+  })
+  .catch(() => {});
+
+// --- Dynamic App Icon OS Theme & Style Selector ---
+function updateAppIconStyle(selectedStyle) {
+  const selectElem = document.getElementById('app-icon-select');
+  const style = selectedStyle || (selectElem ? selectElem.value : null) || localStorage.getItem('quaver-icon-style') || 'auto';
+  localStorage.setItem('quaver-icon-style', style);
+
+  if (selectElem && selectElem.value !== style) {
+    selectElem.value = style;
+  }
+
+  let variant = style;
+  if (style === 'auto') {
+    const isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    variant = isDark ? 'dark' : 'default';
+  }
+
+  if (tauriInvoke) {
+    invoke('set_app_icon_variant', { variant }).catch((err) => {
+      console.warn('[quaver] Failed to set app icon variant:', err);
+    });
+  }
+}
+
+if (window.matchMedia) {
+  const darkModeQuery = window.matchMedia('(prefers-color-scheme: dark)');
+  const handleThemeChange = () => {
+    const savedStyle = localStorage.getItem('quaver-icon-style') || 'auto';
+    if (savedStyle === 'auto') {
+      updateAppIconStyle('auto');
+    }
+  };
+  if (darkModeQuery.addEventListener) {
+    darkModeQuery.addEventListener('change', handleThemeChange);
+  } else if (darkModeQuery.addListener) {
+    darkModeQuery.addListener(handleThemeChange);
+  }
+}
+
+const appIconSelect = document.getElementById('app-icon-select');
+if (appIconSelect) {
+  const savedStyle = localStorage.getItem('quaver-icon-style') || 'auto';
+  appIconSelect.value = savedStyle;
+  appIconSelect.addEventListener('change', (e) => {
+    updateAppIconStyle(e.target.value);
+  });
+}
+updateAppIconStyle();
+

@@ -1,17 +1,39 @@
+@import './styles/macos.css';
+@import './styles/glass.css';
+@import './styles/typography.css';
+@import './styles/layout.css';
+
 :root {
-  --bg-app: #151518;
-  --bg-sidebar: rgba(31, 31, 35, 0.86);
-  --bg-player: rgba(35, 35, 40, 0.88);
+  --bg-app: #121215;
+  --bg-sidebar: rgba(28, 28, 34, 0.76);
+  --bg-player: rgba(32, 32, 40, 0.82);
   --foreground: #f5f5f7;
   --muted-foreground: #a7a7af;
   --accent: #0a84ff;
   --accent-strong: #007aff;
   --accent-light: #64d2ff;
-  --border: rgba(255, 255, 255, 0.09);
-  --hover: rgba(255, 255, 255, 0.095);
+  --border: rgba(255, 255, 255, 0.10);
+  --hover: rgba(255, 255, 255, 0.08);
   --radius-window: 0px;
-  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Display", "SF Pro Text", "Helvetica Neue", sans-serif;
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", sans-serif;
   --font-lyrics: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", sans-serif;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg-app: #f5f5f7;
+    --bg-sidebar: rgba(240, 240, 245, 0.85);
+    --bg-player: rgba(250, 250, 252, 0.90);
+    --foreground: #1d1d1f;
+    --muted-foreground: #6e6e73;
+    --border: rgba(0, 0, 0, 0.10);
+    --hover: rgba(0, 0, 0, 0.06);
+    --quaver-background: #f5f5f7;
+    --quaver-foreground: #1d1d1f;
+    --quaver-secondary-label: rgba(29, 29, 31, 0.68);
+    --quaver-tertiary-label: rgba(29, 29, 31, 0.42);
+    --quaver-separator: rgba(0, 0, 0, 0.10);
+  }
 }
 
 @property --word-progress {
@@ -38,6 +60,85 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* AppKit Native Sidebar & AppKit Native Player own presentation layer.
+   Permanently hide old HTML sidebar and old HTML player visual components
+   to prevent duplicate layout/glass rendering while preserving hidden DOM state. */
+.sidebar,
+html.native-sidebar-active .sidebar,
+#headless-sidebar-store .sidebar {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  position: absolute !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
+}
+
+.mini-player,
+html.native-sidebar-active .mini-player,
+#headless-player-store .mini-player {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  position: absolute !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
+}
+
+/* Unified macOS Native Window Integration */
+html.native-sidebar-active,
+html.native-sidebar-active body {
+  background: #141416;
+}
+
+html.native-sidebar-active .mac-window {
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+html.native-sidebar-active .window-titlebar,
+html.native-sidebar-active .titlebar-blur-backdrop {
+  display: none !important;
+  height: 0 !important;
+  min-height: 0 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+  overflow: hidden !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
+  opacity: 0 !important;
+}
+
+html.native-sidebar-active .main-view {
+  background: transparent;
+  padding-top: 16px;
+  padding-bottom: 104px;
+}
+
+/* Unified surface: WebView and library read as one macOS surface when native chrome owns the window */
+html.native-sidebar-active .table-container {
+  background: transparent;
+  border: none;
+  box-shadow: none;
+  border-radius: 0;
+}
+
+html.native-sidebar-active .tracks-table th {
+  background: transparent;
+}
+
+html.native-sidebar-active .mac-window {
+  background: #141416;
+}
+
 /* Ensure all interactive controls opt out of macOS window dragging */
 button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item, .synced-line {
   -webkit-app-region: no-drag !important;
@@ -58,24 +159,144 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
   overflow: hidden;
 }
 
-/* Window Titlebar (Tauri Overlay Region) */
+/* Window Titlebar (Upper Header with Gradual Transitional Blur) */
 .window-titlebar {
-  height: 52px;
-  background: rgba(35, 35, 39, 0.76);
-  backdrop-filter: blur(28px) saturate(145%);
-  -webkit-backdrop-filter: blur(28px) saturate(145%);
-  border-bottom: 1px solid var(--border);
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 60px;
+  background: transparent;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  -webkit-mask-image: none;
+  mask-image: none;
+  border-bottom: none;
   display: flex;
   align-items: center;
   justify-content: space-between;
   padding: 0 18px 0 80px; /* 80px padding gives native macOS traffic light buttons clear space */
   user-select: none;
-  z-index: 10;
+  z-index: 50;
+  overflow: visible;
+  -webkit-app-region: drag;
+}
+
+/* Multi-stage progressive backdrop container for ultra-deep gradual transitional upper header blur */
+.titlebar-blur-backdrop {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 205px;
+  pointer-events: none;
+  z-index: -1;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.99) 55%, rgba(0, 0, 0, 0.7) 82%, rgba(0, 0, 0, 0) 100%);
+  mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 1) 0%, rgba(0, 0, 0, 0.99) 55%, rgba(0, 0, 0, 0.7) 82%, rgba(0, 0, 0, 0) 100%);
+}
+
+.titlebar-blur-backdrop::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    180deg,
+    rgba(14, 14, 18, 0.99) 0%,
+    rgba(14, 14, 18, 0.96) 45%,
+    rgba(14, 14, 18, 0.82) 65%,
+    rgba(14, 14, 18, 0.52) 80%,
+    rgba(14, 14, 18, 0.22) 90%,
+    rgba(14, 14, 18, 0.05) 97%,
+    rgba(14, 14, 18, 0) 100%
+  );
+  z-index: 1;
+}
+
+.titlebar-blur-backdrop .blur-step {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  pointer-events: none;
+}
+
+/* Step 1: Extended soft feather edge to 205px */
+.titlebar-blur-backdrop .blur-step-1 {
+  height: 205px;
+  backdrop-filter: blur(3px) saturate(110%);
+  -webkit-backdrop-filter: blur(3px) saturate(110%);
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.6) 25%, rgba(0,0,0,0) 100%);
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.6) 25%, rgba(0,0,0,0) 100%);
+}
+
+/* Step 2: Soft transitional blur down to 195px */
+.titlebar-blur-backdrop .blur-step-2 {
+  height: 195px;
+  backdrop-filter: blur(8px) saturate(125%);
+  -webkit-backdrop-filter: blur(8px) saturate(125%);
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.7) 32%, rgba(0,0,0,0) 100%);
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.7) 32%, rgba(0,0,0,0) 100%);
+}
+
+/* Step 3: Medium-light blur down to 185px */
+.titlebar-blur-backdrop .blur-step-3 {
+  height: 185px;
+  backdrop-filter: blur(18px) saturate(140%);
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.75) 40%, rgba(0,0,0,0) 100%);
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.75) 40%, rgba(0,0,0,0) 100%);
+}
+
+/* Step 4: Medium blur down to 170px */
+.titlebar-blur-backdrop .blur-step-4 {
+  height: 170px;
+  backdrop-filter: blur(30px) saturate(160%);
+  -webkit-backdrop-filter: blur(30px) saturate(160%);
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.82) 48%, rgba(0,0,0,0) 100%);
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.82) 48%, rgba(0,0,0,0) 100%);
+}
+
+/* Step 5: Medium-heavy blur down to 155px */
+.titlebar-blur-backdrop .blur-step-5 {
+  height: 155px;
+  backdrop-filter: blur(48px) saturate(180%);
+  -webkit-backdrop-filter: blur(48px) saturate(180%);
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.88) 55%, rgba(0,0,0,0) 100%);
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.88) 55%, rgba(0,0,0,0) 100%);
+}
+
+/* Step 6: Deep glass blur down to 135px */
+.titlebar-blur-backdrop .blur-step-6 {
+  height: 135px;
+  backdrop-filter: blur(70px) saturate(200%);
+  -webkit-backdrop-filter: blur(70px) saturate(200%);
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.92) 60%, rgba(0,0,0,0) 100%);
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.92) 60%, rgba(0,0,0,0) 100%);
+}
+
+/* Step 7: Heavy glass blur down to 115px */
+.titlebar-blur-backdrop .blur-step-7 {
+  height: 115px;
+  backdrop-filter: blur(95px) saturate(220%);
+  -webkit-backdrop-filter: blur(95px) saturate(220%);
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.98) 65%, rgba(0,0,0,0) 100%);
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,0.98) 65%, rgba(0,0,0,0) 100%);
+}
+
+/* Step 8: Ultra-intense core blur (130px blur) covering top 0-90px region */
+.titlebar-blur-backdrop .blur-step-8 {
+  height: 90px;
+  backdrop-filter: blur(130px) saturate(240%) contrast(110%);
+  -webkit-backdrop-filter: blur(130px) saturate(240%) contrast(110%);
+  -webkit-mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 75%, rgba(0,0,0,0) 100%);
+  mask-image: linear-gradient(to bottom, rgba(0,0,0,1) 0%, rgba(0,0,0,1) 75%, rgba(0,0,0,0) 100%);
 }
 
 .titlebar-spacer {
   flex: 1 1 33%;
   height: 100%;
+  -webkit-app-region: drag;
 }
 
 .app-identity {
@@ -90,6 +311,7 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
   font-weight: 600;
   letter-spacing: -0.01em;
   pointer-events: none;
+  -webkit-app-region: drag;
 }
 
 .app-identity-mark {
@@ -107,6 +329,47 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
   align-items: center;
   gap: 12px;
   z-index: 20;
+  -webkit-app-region: no-drag;
+}
+
+.icon-selector-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--foreground-muted, rgba(255, 255, 255, 0.7));
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.icon-selector-label:hover {
+  background: rgba(255, 255, 255, 0.15);
+  color: var(--foreground, #ffffff);
+}
+
+.icon-selector-label select {
+  background: transparent;
+  border: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  outline: none;
+  padding-right: 4px;
+}
+
+.icon-selector-label select option {
+  background: #1e1e24;
+  color: #ffffff;
 }
 
 .btn-primary-mac {
@@ -145,19 +408,22 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
   flex: 1;
   display: flex;
   min-height: 0;
+  height: 100%;
+  width: 100%;
+  position: relative;
+  z-index: 1;
 }
 
-/* Sidebar */
+/* Sidebar (Headless DOM only; visual rendering owned by native AppKit sidebar) */
 .sidebar {
-  width: 230px;
-  background: var(--bg-sidebar);
-  backdrop-filter: blur(30px) saturate(135%);
-  -webkit-backdrop-filter: blur(30px) saturate(135%);
-  border-right: 1px solid var(--border);
-  padding: 20px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 24px;
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  position: absolute !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
 }
 
 .sidebar-header {
@@ -181,42 +447,45 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 9px 11px;
+  padding: 9px 12px;
   color: var(--muted-foreground);
   text-decoration: none;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
-  border-radius: 8px;
-  transition: background-color 0.2s ease, color 0.2s ease, transform 0.2s ease;
+  border-radius: 10px;
+  transition: background-color 0.2s ease, color 0.2s ease, transform 0.16s ease, box-shadow 0.2s ease;
   cursor: pointer;
 }
 
 .sidebar-item:hover {
-  background-color: var(--hover);
   color: var(--foreground);
+  background: rgba(255, 255, 255, 0.08);
 }
-
-.sidebar-item:hover { transform: translateX(1px); }
 
 .sidebar-item.active {
-  color: #fff;
-  background: linear-gradient(90deg, rgba(10, 132, 255, 0.24), rgba(10, 132, 255, 0.08));
-  box-shadow: inset 2px 0 0 var(--accent-light);
+  color: #ffffff;
+  background: var(--accent-strong);
+  box-shadow: 0 4px 14px rgba(0, 122, 255, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  font-weight: 600;
 }
 
-/* Main Panel */
+/* Main Panel (extending full window height under upper header) */
 .main-view {
   flex: 1;
-  background: transparent;
-  display: flex;
-  flex-direction: column;
+  height: 100%;
   min-height: 0;
   overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  padding-top: 60px; /* Accounts for header height so list heading initially sits nicely below titlebar */
+  padding-bottom: 120px;
+  position: relative;
+  z-index: 2;
 }
 
 .view-pane {
   display: none;
-  padding: 38px clamp(28px, 4vw, 56px);
+  padding: 24px clamp(28px, 4vw, 56px) 38px;
 }
 
 .view-pane.active {
@@ -271,34 +540,38 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
 .sidebar-add:hover { color:#fff; background:rgba(255,255,255,.1); }
 .playlists-section { min-height: 0; overflow: auto; }
 .view-eyebrow { color: var(--muted-foreground); font-size: 11px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; margin-bottom: 5px; }
-.library-actions { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
-.library-select-label { display: flex; align-items: center; gap: 6px; color: var(--muted-foreground); font-size: 11px; font-weight: 600; }
+.library-actions { display: flex; align-items: center; justify-content: flex-end; gap: 12px; flex-wrap: nowrap; }
+.library-select-label { display: flex; align-items: center; gap: 6px; color: var(--muted-foreground); font-size: 11px; font-weight: 600; white-space: nowrap; }
 .library-select { appearance: none; color: var(--foreground); background: var(--bg-sidebar); border: 1px solid var(--border); border-radius: 7px; padding: 7px 25px 7px 9px; font: 500 12px var(--font-sans); cursor: pointer; }
 .library-select:focus { outline: 2px solid rgba(255,255,255,.25); outline-offset: 1px; }
 
+.sidebar-search {
+  width: 100%;
+  margin-bottom: 2px;
+}
+
 .song-search {
-  width: min(340px, 46vw);
-  height: 36px;
+  width: 100%;
+  height: 34px;
   display: flex;
   align-items: center;
-  gap: 9px;
-  padding: 0 12px;
+  gap: 8px;
+  padding: 0 10px;
   color: var(--muted-foreground);
-  background: rgba(0, 0, 0, 0.22);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 9px;
-  box-shadow: inset 0 1px rgba(255, 255, 255, 0.035);
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.09);
+  border-radius: 10px;
   transition: border-color 0.2s ease, box-shadow 0.2s ease, background-color 0.2s ease;
 }
 
 .song-search:focus-within {
-  background: rgba(0, 0, 0, 0.32);
+  background: rgba(255, 255, 255, 0.09);
   border-color: rgba(10, 132, 255, 0.85);
-  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.18), inset 0 1px rgba(255, 255, 255, 0.05);
+  box-shadow: 0 0 0 3px rgba(10, 132, 255, 0.2);
 }
 
-.song-search svg { width: 17px; height: 17px; flex: 0 0 auto; }
-.song-search input { width: 100%; min-width: 0; border: 0; outline: 0; color: var(--foreground); background: transparent; font: inherit; font-size: 13px; }
+.song-search svg { width: 15px; height: 15px; flex: 0 0 auto; }
+.song-search input { width: 100%; min-width: 0; border: 0; outline: 0; color: var(--foreground); background: transparent; font-family: var(--font-sans); font-size: 12px; }
 .song-search input::placeholder { color: var(--muted-foreground); }
 .btn-secondary-mac { margin-top: 16px; padding: 8px 13px; color: var(--foreground); background: rgba(255,255,255,.09); border: 1px solid rgba(255,255,255,.12); border-radius: 8px; font: 600 13px var(--font-sans); cursor: pointer; transition: background-color .2s ease; }
 .btn-secondary-mac:hover { background: rgba(255,255,255,.15); }
@@ -306,7 +579,7 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
 /* Tracks Table */
 .table-container {
   overflow-x: auto;
-  overflow-y: hidden;
+  overflow-y: visible;
   border: 1px solid rgba(255, 255, 255, 0.075);
   border-radius: 12px;
   background: rgba(0, 0, 0, 0.09);
@@ -348,7 +621,6 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
   background: rgba(10, 132, 255, 0.1);
 }
 
-.col-num { width: 40px; text-align: center; color: var(--muted-foreground); }
 .col-title { font-weight: 500; }
 .track-cell { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .track-cell > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -369,39 +641,132 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
 .empty-state h3 { font-size: 18px; font-weight: 600; margin-bottom: 8px; }
 .empty-state p { color: var(--muted-foreground); font-size: 14px; margin-bottom: 16px; }
 
-/* Mini Player Bar */
-.mini-player {
-  height: 88px;
-  background: var(--bg-player);
-  backdrop-filter: blur(34px) saturate(145%);
-  -webkit-backdrop-filter: blur(34px) saturate(145%);
-  border-top: 1px solid var(--border);
+/* Album & Artist Cards Grid Layouts */
+.albums-grid, .artists-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 22px;
+  padding: 10px 0 30px;
+}
+
+.album-card, .artist-card {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 0 28px;
-  z-index: 10;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  border-radius: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  cursor: pointer;
+  transition: transform 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.album-card:hover, .artist-card:hover {
+  transform: translateY(-4px);
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
+}
+
+.album-card-cover, .artist-card-cover {
+  width: 100%;
+  aspect-ratio: 1 / 1;
+  border-radius: 12px;
+  background-color: #27272a;
+  background-size: cover;
+  background-position: center;
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.3);
+}
+
+.artist-card-cover {
+  border-radius: 50%;
+}
+
+.album-card-title, .artist-card-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.album-card-subtitle, .artist-card-subtitle {
+  font-size: 12px;
+  color: var(--muted-foreground);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Mini Player Bar (Headless DOM only; visual rendering owned by native AppKit mini-player) */
+.mini-player {
+  display: none !important;
+  width: 0 !important;
+  height: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  position: absolute !important;
+  pointer-events: none !important;
+  visibility: hidden !important;
 }
 
 .player-left {
   display: flex;
   align-items: center;
   gap: 14px;
-  width: 25%;
-  min-width: 180px;
+  flex: 1 1 200px;
+  min-width: 0;
 }
 
 .now-playing-cover {
   width: 54px;
   height: 54px;
-  border-radius: 8px;
-  background-color: #303035;
+  flex: 0 0 54px;
+  border-radius: 12px;
+  background-color: #2a2a30;
   background-size: cover;
   background-position: center;
-  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.32), inset 0 0 0 1px rgba(255,255,255,.07);
+  box-shadow: 0 5px 14px rgba(0, 0, 0, 0.32), inset 0 0 0 1px rgba(255,255,255,.14);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  overflow: hidden;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), filter 0.25s ease, box-shadow 0.25s ease;
 }
 
-.now-playing-meta { min-width: 0; }
+.mini-cover-placeholder {
+  width: 24px;
+  height: 24px;
+  color: rgba(255, 255, 255, 0.4);
+  transition: opacity 0.2s ease;
+}
+
+.now-playing-cover.has-cover .mini-cover-placeholder {
+  display: none;
+}
+
+.now-playing-cover img, .now-playing-cover canvas {
+  width: 100%;
+  height: 100%;
+  border-radius: 12px;
+  object-fit: cover;
+}
+
+.now-playing-cover:hover {
+  transform: scale(1.08);
+  filter: brightness(1.15);
+  box-shadow: 0 10px 24px rgba(0, 0, 0, 0.55), inset 0 0 0 1px rgba(255, 255, 255, 0.28);
+}
+
+.now-playing-meta {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
 .track-title { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; color: var(--foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .track-artist { font-size: 12px; color: var(--muted-foreground); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px; }
 
@@ -409,14 +774,17 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
-  width: 40%;
+  gap: 6px;
+  flex: 2 1 300px;
+  min-width: 180px;
 }
 
 .player-buttons {
   display: flex;
   align-items: center;
-  gap: 12px;
+  justify-content: center;
+  gap: 10px;
+  height: 36px;
 }
 
 .btn-icon {
@@ -424,8 +792,9 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
   border: none;
   color: var(--muted-foreground);
   cursor: pointer;
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -441,8 +810,9 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
 .btn-playpause {
   background: #f5f5f7;
   color: #202024;
-  width: 40px;
-  height: 40px;
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
   box-shadow: 0 2px 10px rgba(0,0,0,.22), inset 0 1px rgba(255,255,255,.9);
 }
 
@@ -480,8 +850,10 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
   display: flex;
   align-items: center;
   justify-content: flex-end;
-  gap: 16px;
-  width: 25%;
+  gap: 12px;
+  height: 36px;
+  flex: 1 1 140px;
+  min-width: 0;
 }
 
 .volume-container {
@@ -506,17 +878,42 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
   border-radius: 999px;
 }
 
-/* Keep the compact player comfortable on smaller MacBook window sizes. */
-@media (max-width: 740px) {
-  .sidebar { width: 190px; }
-  .mini-player { padding: 0 16px; }
-  .player-left { min-width: 130px; }
-  .player-right { width: auto; }
+/* Responsive adjustments */
+@media (max-width: 780px) {
+  .player-left { flex: 1 1 140px; min-width: 0; gap: 10px; }
+  .now-playing-cover { width: 44px; height: 44px; flex: 0 0 44px; }
+  .player-center { flex: 2 1 200px; min-width: 160px; }
+  .player-right { flex: 0 0 auto; width: auto; gap: 8px; }
   .volume-container { display: none; }
-  .player-center { width: 48%; }
-  .library-heading { align-items: flex-start; flex-direction: column; gap: 16px; }
-  .song-search { width: min(100%, 420px); }
-  .library-actions { width: 100%; justify-content: flex-start; flex-wrap: wrap; }
+  .library-heading { align-items: flex-start; flex-direction: column; gap: 12px; }
+  .song-search { width: 100%; }
+}
+
+@media (max-width: 580px) {
+  .mac-window { flex-direction: column; }
+  .player-buttons { gap: 4px; }
+  .btn-icon { width: 32px; height: 32px; flex: 0 0 32px; }
+  .btn-icon svg { width: 18px; height: 18px; }
+  .progress-container { gap: 6px; font-size: 10px; }
+  .library-actions { flex-wrap: wrap; }
+}
+
+/* Accessibility: Reduced Transparency */
+@media (prefers-reduced-transparency: reduce) {
+  .sidebar, .mini-player, .window-titlebar, .queue-panel, .fullscreen-overlay {
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
+    background: var(--quaver-background) !important;
+  }
+}
+
+/* Accessibility: Reduced Motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
 
 /* Fullscreen Overlay Design matching monochrome-music visuals */
@@ -793,28 +1190,18 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
 }
 
 /* Playback controls and the lightweight, native-feeling Up Next drawer. */
-.playback-speed {
-  min-width: 30px;
-  height: 26px;
-  padding: 0 6px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--text-secondary, #a1a1aa);
-  font: 600 11px/1 var(--font-main, system-ui);
-  cursor: pointer;
-}
-.playback-speed:hover, .playback-speed.active { background: rgba(255,255,255,.1); color: #fff; }
 .btn-icon.repeat-one::after { content: '1'; position: absolute; font: 700 9px/1 system-ui; transform: translate(5px, 5px); }
 
 .queue-panel {
   position: absolute;
-  z-index: 30;
+  z-index: 120;
   right: 18px;
-  bottom: 82px;
+  bottom: 110px;
   width: min(360px, calc(100vw - 36px));
-  max-height: min(570px, calc(100vh - 130px));
+  max-height: min(520px, calc(100vh - 160px));
   padding: 18px;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
   border: 1px solid rgba(255,255,255,.13);
   border-radius: 17px;
@@ -831,7 +1218,7 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
 .queue-panel h2 { margin: 2px 0 0; color:#fff; font-size:20px; letter-spacing:-.03em; }
 .queue-eyebrow { color: #a1a1aa; font-size:10px; font-weight:700; letter-spacing:.11em; }
 .queue-help { margin: 10px 0 12px; color:#9c9ca4; font-size:12px; }
-.queue-list { overflow:auto; max-height:430px; padding-right:2px; }
+.queue-list { flex: 1; min-height: 0; overflow-y: auto; padding-right: 2px; }
 .queue-empty { color:#a1a1aa; padding: 20px 0; text-align:center; }
 .queue-item { width:100%; display:grid; grid-template-columns:16px 36px 1fr 16px; gap:9px; align-items:center; padding:8px 5px; border:0; border-radius:10px; background:transparent; color:#e4e4e7; text-align:left; cursor:pointer; }
 .queue-item:hover, .queue-item.current { background:rgba(255,255,255,.09); }
