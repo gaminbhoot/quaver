@@ -1,5 +1,15 @@
-import { invoke } from '@tauri-apps/api/core';
 import { formatTime, parseLRC, getNextTrackIndex, getPrevTrackIndex } from './audioUtils.js';
+
+const tauriInvoke = window.__TAURI__?.core?.invoke;
+const convertFileSrc = window.__TAURI_INTERNALS__?.convertFileSrc;
+
+function invoke(command, args) {
+  if (!tauriInvoke) {
+    return Promise.reject(new Error('Tauri API is unavailable'));
+  }
+
+  return tauriInvoke(command, args);
+}
 
 // State
 let playlist = [];
@@ -9,9 +19,11 @@ let isShuffle = false;
 let isRepeat = false;
 let lyrics = [];
 let activeLyricIndex = -1;
+let lastPlaybackErrorSource = '';
 
 const audio = new Audio();
 audio.volume = 0.8;
+audio.preload = 'metadata';
 
 // DOM Elements
 const importBtn = document.getElementById('import-folder-btn');
@@ -68,14 +80,19 @@ async function handleSelectFolder(e) {
     e.stopPropagation();
   }
 
+  if (!tauriInvoke) {
+    fallbackFolderInput.click();
+    return;
+  }
+
   try {
     const folderPath = await invoke('select_folder');
     if (folderPath && typeof folderPath === 'string') {
       scanFolder(folderPath);
     }
   } catch (err) {
-    console.warn('Rust select_folder failed, falling back to file input:', err);
-    fallbackFolderInput.click();
+    console.error('Rust select_folder failed:', err);
+    alert('Could not open the native folder picker. Please restart the app and try again.');
   }
 }
 
@@ -200,6 +217,31 @@ function renderPlaylist() {
   });
 }
 
+function getTrackSource(track) {
+  if (track.path.startsWith('blob:')) {
+    return track.path;
+  }
+
+  if (!convertFileSrc) {
+    throw new Error('Native file playback is unavailable outside the Quaver desktop app.');
+  }
+
+  return convertFileSrc(track.path);
+}
+
+function showPlaybackError(error) {
+  const failedSource = audio.currentSrc;
+  if (failedSource && failedSource === lastPlaybackErrorSource) {
+    return;
+  }
+
+  lastPlaybackErrorSource = failedSource;
+  console.error('Audio playback failed:', error);
+  isPlaying = false;
+  updatePlayButtonUI();
+  alert(`Could not play this track. ${error.message || 'Its format may not be supported by this device.'}`);
+}
+
 // Play track by index
 async function playTrack(index) {
   if (index < 0 || index >= playlist.length) return;
@@ -216,19 +258,15 @@ async function playTrack(index) {
     rows[currentTrackIndex].classList.add('playing');
   }
 
-  if (track.path.startsWith('blob:')) {
-    audio.src = track.path;
-  } else {
-    audio.src = `https://asset.localhost/${encodeURIComponent(track.path)}`;
+  try {
+    lastPlaybackErrorSource = '';
+    audio.src = getTrackSource(track);
+    audio.load();
+    await audio.play();
+  } catch (error) {
+    showPlaybackError(error);
+    return;
   }
-
-  audio.play().catch(() => {
-    audio.src = track.path;
-    audio.play().catch(console.error);
-  });
-
-  isPlaying = true;
-  updatePlayButtonUI();
 
   if (track.lyricPath) {
     try {
@@ -333,18 +371,11 @@ function togglePlay() {
     return;
   }
 
-  const fsCard = document.querySelector('.fullscreen-artwork-card');
-
   if (isPlaying) {
     audio.pause();
-    isPlaying = false;
-    if (fsCard) fsCard.classList.remove('playing');
   } else {
-    audio.play();
-    isPlaying = true;
-    if (fsCard) fsCard.classList.add('playing');
+    audio.play().catch(showPlaybackError);
   }
-  updatePlayButtonUI();
 }
 
 function updatePlayButtonUI() {
@@ -411,6 +442,24 @@ audio.addEventListener('timeupdate', () => {
 audio.addEventListener('loadedmetadata', () => {
   timeTotal.textContent = formatTime(audio.duration);
   fsTimeTotal.textContent = formatTime(audio.duration);
+});
+
+audio.addEventListener('play', () => {
+  isPlaying = true;
+  updatePlayButtonUI();
+  document.querySelector('.fullscreen-artwork-card')?.classList.add('playing');
+});
+
+audio.addEventListener('pause', () => {
+  isPlaying = false;
+  updatePlayButtonUI();
+  document.querySelector('.fullscreen-artwork-card')?.classList.remove('playing');
+});
+
+audio.addEventListener('error', () => {
+  if (audio.error) {
+    showPlaybackError(new Error(audio.error.message || 'The audio file could not be loaded.'));
+  }
 });
 
 audio.addEventListener('ended', () => {
