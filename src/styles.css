@@ -477,12 +477,9 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
 .mini-player {
   position: absolute;
   bottom: 18px;
-  left: 270px;
-  right: 24px;
-  width: auto;
-  max-width: 860px;
-  margin-left: auto;
-  transform: none;
+  left: calc(127px + 50%);
+  transform: translateX(-50%);
+  width: min(calc(100vw - 310px), 820px);
   height: 80px;
   background: rgba(28, 28, 36, 0.76) !important;
   backdrop-filter: blur(45px) saturate(190%) contrast(90%);
