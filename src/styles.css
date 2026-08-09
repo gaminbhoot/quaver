@@ -60,10 +60,10 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* AppKit Native Sidebar & AppKit Native Player own presentation layer.
-   Permanently hide old HTML sidebar and old HTML player visual components
-   to prevent duplicate layout/glass rendering while preserving hidden DOM state. */
-.sidebar,
+/* AppKit Native Sidebar & AppKit Native Player own presentation layer when active.
+   Hide old HTML sidebar/player only when native chrome is active (gated on
+   html.native-sidebar-active, emitted after AppKit actually attaches), or when
+   those elements are moved into headless stores for state retention. */
 html.native-sidebar-active .sidebar,
 #headless-sidebar-store .sidebar {
   display: none !important;
@@ -77,7 +77,6 @@ html.native-sidebar-active .sidebar,
   visibility: hidden !important;
 }
 
-.mini-player,
 html.native-sidebar-active .mini-player,
 #headless-player-store .mini-player {
   display: none !important;
@@ -444,8 +443,8 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
   z-index: 1;
 }
 
-/* Sidebar (Headless DOM only; visual rendering owned by native AppKit sidebar) */
-.sidebar {
+/* Sidebar hidden only when native AppKit sidebar is active (or in headless store) */
+html.native-sidebar-active .sidebar {
   display: none !important;
   width: 0 !important;
   height: 0 !important;
@@ -729,8 +728,8 @@ button, input, a, .btn-primary-mac, .btn-icon, .top-nav-controls, .sidebar-item,
   white-space: nowrap;
 }
 
-/* Mini Player Bar (Headless DOM only; visual rendering owned by native AppKit mini-player) */
-.mini-player {
+/* Mini Player hidden only when native AppKit mini-player is active (or in headless store) */
+html.native-sidebar-active .mini-player {
   display: none !important;
   width: 0 !important;
   height: 0 !important;

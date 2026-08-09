@@ -2,12 +2,13 @@ use base64::Engine;
 use objc2::{define_class, msg_send, rc::Retained, runtime::AnyObject, AnyThread, MainThreadMarker, MainThreadOnly};
 use objc2_app_kit::{
     NSAutoresizingMaskOptions, NSButton, NSGlassEffectView, NSGlassEffectViewStyle,
+    NSVisualEffectView, NSVisualEffectMaterial, NSVisualEffectBlendingMode, NSVisualEffectState,
     NSFont, NSImage, NSImageView, NSSearchField, NSSlider, NSTextAlignment, NSView, NSWindow,
 };
 use objc2_foundation::{ns_string, NSPoint, NSRect, NSSize, NSString};
 use serde::Deserialize;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::OnceLock;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Mutex, OnceLock};
 use tauri::Emitter;
 
 const SIDEBAR_WIDTH: f64 = 254.0;
@@ -86,6 +87,14 @@ define_class!(
             let val = sender.doubleValue();
             emit_sidebar_action("player-volume", Some(val.to_string()));
         }
+
+        #[unsafe(method(toggleVolume:))]
+        fn toggle_volume(&self, _sender: &AnyObject) {
+            // Detached bubble toggle is now handled by NativeGlassManager directly
+            // (tag-based lookup threw foreign exception on Tahoe SDK).
+            // Emit an action; window.rs will flip visibility.
+            emit_sidebar_action("toggle-volume-popover", None);
+        }
     }
 );
 
@@ -107,8 +116,9 @@ fn target(controller: &NativeSidebarController) -> &AnyObject {
 pub struct NativeGlassManager {
     _window: Retained<NSWindow>,
     webview: Retained<NSView>,
-    sidebar: Retained<NSGlassEffectView>,
-    player: Retained<NSGlassEffectView>,
+    sidebar: Retained<NSView>,
+    player: Retained<NSView>,
+    volume_popover: Retained<NSView>,
     player_cover: Retained<NSImageView>,
     player_cover_btn: Retained<NSButton>,
     player_title: Retained<objc2_app_kit::NSTextField>,
@@ -118,11 +128,30 @@ pub struct NativeGlassManager {
     player_like_btn: Retained<NSButton>,
     player_shuffle_btn: Retained<NSButton>,
     player_repeat_btn: Retained<NSButton>,
+    player_prev_btn: Retained<NSButton>,
+    player_next_btn: Retained<NSButton>,
+    player_waveform_btn: Retained<NSButton>,
+    player_more_btn: Retained<NSButton>,
+    player_lyrics_btn: Retained<NSButton>,
+    player_queue_btn: Retained<NSButton>,
+    player_volume_btn: Retained<NSButton>,
     player_progress_slider: Retained<NSSlider>,
     player_volume_slider: Retained<NSSlider>,
     _controller: Retained<NativeSidebarController>,
     in_lyrics_mode: AtomicBool,
     is_attached: bool,
+    // Dirty-state cache — avoid repeated decode/setter work on every progress tick
+    last_cover: Mutex<Option<String>>,
+    last_title: Mutex<Option<String>>,
+    last_artist: Mutex<Option<String>>,
+    last_playing: AtomicBool,
+    last_playing_init: AtomicBool,
+    last_progress_bits: AtomicU64,
+    last_volume_bits: AtomicU64,
+    last_time_label: Mutex<Option<String>>,
+    last_liked: Mutex<Option<bool>>,
+    last_shuffle: Mutex<Option<bool>>,
+    last_repeat: Mutex<Option<String>>,
 }
 
 #[derive(Deserialize, Debug)]
@@ -169,12 +198,79 @@ impl NativeGlassManager {
                 .ok_or_else(|| "[macos] Failed to retain WKWebView".to_string())?
         };
 
-        let sidebar = NSGlassEffectView::new(mtm);
-        sidebar.setStyle(NSGlassEffectViewStyle::Regular);
-        sidebar.setCornerRadius(22.0);
-        let player = NSGlassEffectView::new(mtm);
-        player.setStyle(NSGlassEffectViewStyle::Regular);
-        player.setCornerRadius(26.0);
+        // Liquid Glass (Tahoe): try NSGlassEffectView first, fall back to NSVisualEffectView
+        // on foreign exception. Both are retained as Retained<NSView> so every later
+        // NSView callsite (addSubview / setHidden / setFrame / layer / subviews) keeps compiling.
+        let sidebar: Retained<NSView> = match objc2::exception::catch(|| {
+            let v = NSGlassEffectView::new(mtm);
+            v.setStyle(NSGlassEffectViewStyle::Regular);
+            v.setCornerRadius(22.0);
+            v.setWantsLayer(true);
+            if let Some(l) = v.layer() { l.setMasksToBounds(true); }
+            unsafe { Retained::cast_unchecked(v) }
+        }) {
+            Ok(v) => {
+                eprintln!("[macos] Liquid Glass sidebar — NSGlassEffectView ✓");
+                v
+            }
+            Err(_) => {
+                eprintln!("[macos] NSGlassEffectView failed for sidebar, fallback to NSVisualEffectView");
+                let v = NSVisualEffectView::new(mtm);
+                v.setMaterial(NSVisualEffectMaterial::Sidebar);
+                v.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+                v.setState(NSVisualEffectState::Active);
+                v.setWantsLayer(true);
+                if let Some(l) = v.layer() { l.setCornerRadius(22.0); l.setMasksToBounds(true); }
+                unsafe { Retained::cast_unchecked(v) }
+            }
+        };
+        let player: Retained<NSView> = match objc2::exception::catch(|| {
+            let v = NSGlassEffectView::new(mtm);
+            v.setStyle(NSGlassEffectViewStyle::Regular);
+            v.setCornerRadius(32.0);
+            v.setWantsLayer(true);
+            if let Some(l) = v.layer() { l.setMasksToBounds(true); }
+            unsafe { Retained::cast_unchecked(v) }
+        }) {
+            Ok(v) => {
+                eprintln!("[macos] Liquid Glass player — NSGlassEffectView ✓");
+                v
+            }
+            Err(_) => {
+                eprintln!("[macos] NSGlassEffectView failed for player, fallback");
+                let v = NSVisualEffectView::new(mtm);
+                v.setMaterial(NSVisualEffectMaterial::HUDWindow);
+                v.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+                v.setState(NSVisualEffectState::Active);
+                v.setWantsLayer(true);
+                if let Some(l) = v.layer() { l.setCornerRadius(32.0); l.setMasksToBounds(true); }
+                unsafe { Retained::cast_unchecked(v) }
+            }
+        };
+        let volume_popover: Retained<NSView> = match objc2::exception::catch(|| {
+            let v = NSGlassEffectView::new(mtm);
+            v.setStyle(NSGlassEffectViewStyle::Regular);
+            v.setCornerRadius(16.0);
+            v.setWantsLayer(true);
+            if let Some(l) = v.layer() { l.setMasksToBounds(true); }
+            unsafe { Retained::cast_unchecked(v) }
+        }) {
+            Ok(v) => {
+                eprintln!("[macos] Liquid Glass popover — NSGlassEffectView ✓");
+                v
+            }
+            Err(_) => {
+                eprintln!("[macos] NSGlassEffectView failed for popover, fallback");
+                let v = NSVisualEffectView::new(mtm);
+                v.setMaterial(NSVisualEffectMaterial::HUDWindow);
+                v.setBlendingMode(NSVisualEffectBlendingMode::BehindWindow);
+                v.setState(NSVisualEffectState::Active);
+                v.setWantsLayer(true);
+                if let Some(l) = v.layer() { l.setCornerRadius(16.0); l.setMasksToBounds(true); }
+                unsafe { Retained::cast_unchecked(v) }
+            }
+        };
+        volume_popover.setHidden(true);
         let player_cover = NSImageView::new(mtm);
         let player_title = objc2_app_kit::NSTextField::labelWithString(ns_string!("Not Playing"), mtm);
         let player_artist = objc2_app_kit::NSTextField::labelWithString(ns_string!("-"), mtm);
@@ -210,6 +306,36 @@ impl NativeGlassManager {
         let player_repeat_btn = unsafe { NSButton::buttonWithTitle_target_action(&title_repeat, Some(controller_target), Some(objc2::sel!(playerRepeat:)), mtm) };
         player_repeat_btn.setBordered(false);
 
+        // Apple Music pill — exact transport + utility cluster (SF-style glyphs)
+        let title_prev = NSString::from_str("⏮");
+        let player_prev_btn = unsafe { NSButton::buttonWithTitle_target_action(&title_prev, Some(controller_target), Some(objc2::sel!(playerPrevious:)), mtm) };
+        player_prev_btn.setBordered(false);
+        let title_next = NSString::from_str("⏭");
+        let player_next_btn = unsafe { NSButton::buttonWithTitle_target_action(&title_next, Some(controller_target), Some(objc2::sel!(playerNext:)), mtm) };
+        player_next_btn.setBordered(false);
+        let title_wave = NSString::from_str("♫");
+        let player_waveform_btn = unsafe { NSButton::buttonWithTitle_target_action(&title_wave, Some(controller_target), Some(objc2::sel!(playerShuffle:)), mtm) };
+        player_waveform_btn.setBordered(false);
+        let title_more = NSString::from_str("⋯");
+        let player_more_btn = unsafe { NSButton::buttonWithTitle_target_action(&title_more, Some(controller_target), Some(objc2::sel!(playerLike:)), mtm) };
+        player_more_btn.setBordered(false);
+        let title_lyrics = NSString::from_str("◫");
+        let player_lyrics_btn = unsafe { NSButton::buttonWithTitle_target_action(&title_lyrics, Some(controller_target), Some(objc2::sel!(playerCoverClicked:)), mtm) };
+        player_lyrics_btn.setBordered(false);
+        let title_queue = NSString::from_str("☰");
+        let player_queue_btn = unsafe { NSButton::buttonWithTitle_target_action(&title_queue, Some(controller_target), Some(objc2::sel!(playerQueue:)), mtm) };
+        player_queue_btn.setBordered(false);
+        let title_vol = NSString::from_str("");
+        let player_volume_btn = unsafe { NSButton::buttonWithTitle_target_action(&title_vol, Some(controller_target), Some(objc2::sel!(toggleVolume:)), mtm) };
+        player_volume_btn.setBordered(false);
+        if let Some(img) = NSImage::imageWithSystemSymbolName_accessibilityDescription(ns_string!("speaker.wave.2.fill"), None) {
+            img.setTemplate(true);
+            player_volume_btn.setImage(Some(&img));
+            player_volume_btn.setImagePosition(objc2_app_kit::NSCellImagePosition::ImageOnly);
+        } else {
+            player_volume_btn.setTitle(&NSString::from_str("◯))"));
+        }
+
         let player_progress_slider = unsafe { NSSlider::sliderWithValue_minValue_maxValue_target_action(0.0, 0.0, 100.0, Some(controller_target), Some(objc2::sel!(playerSeek:)), mtm) };
         let player_volume_slider = unsafe { NSSlider::sliderWithValue_minValue_maxValue_target_action(100.0, 0.0, 100.0, Some(controller_target), Some(objc2::sel!(playerVolume:)), mtm) };
 
@@ -218,6 +344,7 @@ impl NativeGlassManager {
             webview,
             sidebar,
             player,
+            volume_popover,
             player_cover,
             player_cover_btn,
             player_title,
@@ -227,11 +354,29 @@ impl NativeGlassManager {
             player_like_btn,
             player_shuffle_btn,
             player_repeat_btn,
+            player_prev_btn,
+            player_next_btn,
+            player_waveform_btn,
+            player_more_btn,
+            player_lyrics_btn,
+            player_queue_btn,
+            player_volume_btn,
             player_progress_slider,
             player_volume_slider,
             _controller: controller_obj,
             in_lyrics_mode: AtomicBool::new(false),
             is_attached: false,
+            last_cover: Mutex::new(None),
+            last_title: Mutex::new(None),
+            last_artist: Mutex::new(None),
+            last_playing: AtomicBool::new(false),
+            last_playing_init: AtomicBool::new(false),
+            last_progress_bits: AtomicU64::new(f64::NAN.to_bits()),
+            last_volume_bits: AtomicU64::new(f64::NAN.to_bits()),
+            last_time_label: Mutex::new(None),
+            last_liked: Mutex::new(None),
+            last_shuffle: Mutex::new(None),
+            last_repeat: Mutex::new(None),
         })
     }
 
@@ -261,7 +406,8 @@ impl NativeGlassManager {
             .ok_or_else(|| "[macos] Native sidebar must attach on the main thread".to_string())?;
         let content = NSView::new(mtm);
 
-        self.sidebar.setContentView(Some(&content));
+        // NSVisualEffectView has no setContentView -- add as subview
+        self.sidebar.addSubview(&content);
         parent.addSubview_positioned_relativeTo(
             &self.sidebar,
             objc2_app_kit::NSWindowOrderingMode::Above,
@@ -272,8 +418,26 @@ impl NativeGlassManager {
             objc2_app_kit::NSWindowOrderingMode::Above,
             Some(&self.webview),
         );
+        // Detached volume bubble — floats above the pill so it never covers the pill's buttons
+        parent.addSubview_positioned_relativeTo(
+            &self.volume_popover,
+            objc2_app_kit::NSWindowOrderingMode::Above,
+            Some(&self.player),
+        );
 
         self.layout(&parent);
+        // Volume bubble content — a small glass capsule containing the horizontal slider
+        // Keep the slider offscreen inside the pillow until it is shown above the pill.
+        {
+            let popover_content = NSView::new(mtm);
+            self.volume_popover.addSubview(&popover_content);
+            // Size the content view to popover bounds once layout runs
+            popover_content.setFrame(self.volume_popover.bounds());
+            popover_content.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable);
+            self.player_volume_slider.setFrame(NSRect::new(NSPoint::new(12.0, 10.0), NSSize::new(120.0, 16.0)));
+            self.player_volume_slider.setControlSize(objc2_app_kit::NSControlSize::Mini);
+            popover_content.addSubview(&self.player_volume_slider);
+        }
         // NSGlassEffectView guarantees its content is embedded in the material,
         // but does not infer a frame for a programmatically-created NSView.
         // Give it the sidebar's local bounds so controls cannot extend into the
@@ -338,121 +502,146 @@ impl NativeGlassManager {
 
     fn build_player(&self, mtm: MainThreadMarker) {
         let content = NSView::new(mtm);
-        self.player.setContentView(Some(&content));
+        self.player.addSubview(&content);
         content.setFrame(self.player.bounds());
         content.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable);
 
-        // Artwork View & Clickable Button on Left
-        self.player_cover.setFrame(NSRect::new(NSPoint::new(16.0, 16.0), NSSize::new(48.0, 48.0)));
+        let p_w = self.player.bounds().size.width.max(560.0);
+        let p_h = self.player.bounds().size.height.max(64.0);
+
+        // ——— Apple Music pill topology ———
+        // Left transport cluster: shuffle · prev · play (prominent) · next · repeat
+        // Center-left: 42pt artwork + 2-line meta
+        // Right utilities: waveform · ⋯ · lyrics · queue · volume
+        // Bottom: inset hairline progress (seekable) across the capsule
+        // All frames here are initial; layout() repositions on every resize.
+
+        // Artwork — 44pt square, vertically centered ( (66-44)/2 = 11 )
+        let art_size: f64 = 44.0;
+        let art_x: f64 = 212.0; // after left transport
+        let art_y: f64 = (p_h - art_size) / 2.0 + 4.0; // +4 lifts above hairline progress
+        self.player_cover.setFrame(NSRect::new(NSPoint::new(art_x, art_y), NSSize::new(art_size, art_size)));
         self.player_cover.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMaxXMargin | NSAutoresizingMaskOptions::ViewMinYMargin);
         self.player_cover.setWantsLayer(true);
         if let Some(layer) = self.player_cover.layer() {
-            layer.setCornerRadius(10.0);
+            layer.setCornerRadius(7.0);
             layer.setMasksToBounds(true);
         }
         content.addSubview(&self.player_cover);
 
-        self.player_cover_btn.setFrame(NSRect::new(NSPoint::new(16.0, 16.0), NSSize::new(48.0, 48.0)));
+        self.player_cover_btn.setFrame(NSRect::new(NSPoint::new(art_x, art_y), NSSize::new(art_size, art_size)));
         self.player_cover_btn.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMaxXMargin | NSAutoresizingMaskOptions::ViewMinYMargin);
         self.player_cover_btn.setWantsLayer(true);
         if let Some(layer) = self.player_cover_btn.layer() {
-            layer.setCornerRadius(10.0);
+            layer.setCornerRadius(7.0);
             layer.setMasksToBounds(true);
         }
         content.addSubview(&self.player_cover_btn);
 
-        // Metadata Labels — shifted up to clear progress bar
-        self.player_title.setFrame(NSRect::new(NSPoint::new(74.0, 46.0), NSSize::new(200.0, 18.0)));
-        self.player_artist.setFrame(NSRect::new(NSPoint::new(74.0, 30.0), NSSize::new(200.0, 14.0)));
-        self.player_title.setFont(Some(&NSFont::systemFontOfSize(13.0)));
+        // Metadata — to the right of artwork, tighter stack for pill
+        self.player_title.setFrame(NSRect::new(NSPoint::new(art_x + art_size + 10.0, art_y + 22.0), NSSize::new((p_w - art_x - art_size - 230.0).max(120.0), 15.0)));
+        self.player_artist.setFrame(NSRect::new(NSPoint::new(art_x + art_size + 10.0, art_y + 8.0), NSSize::new((p_w - art_x - art_size - 230.0).max(120.0), 12.0)));
+        self.player_title.setFont(Some(&NSFont::systemFontOfSize(12.5)));
         self.player_artist.setFont(Some(&NSFont::systemFontOfSize(11.0)));
         self.player_artist.setTextColor(Some(&objc2_app_kit::NSColor::secondaryLabelColor()));
         content.addSubview(&self.player_title);
         content.addSubview(&self.player_artist);
 
-        // Time label (elapsed / total) — sits inline with progress, left of slider
-        self.player_time_label.setFrame(NSRect::new(NSPoint::new(74.0, 8.0), NSSize::new(80.0, 14.0)));
-        self.player_time_label.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMaxXMargin | NSAutoresizingMaskOptions::ViewMinYMargin);
+        // Time label — hidden in Apple pill (progress is hairline, time on hover only)
+        self.player_time_label.setFrame(NSRect::new(NSPoint::new(art_x + art_size + 10.0, 5.0), NSSize::new(72.0, 11.0)));
+        self.player_time_label.setHidden(true);
         content.addSubview(&self.player_time_label);
 
-        let controller = target(&self._controller);
-
-        // Playback Controls (Shuffle, Prev, Play/Pause, Next, Repeat)
+        // Left transport — compact, vertically centered above hairline
+        let cy: f64 = (p_h / 2.0) + 5.0;
         self.player_shuffle_btn.setFont(Some(&NSFont::systemFontOfSize(15.0)));
-        self.player_shuffle_btn.setFrame(NSRect::new(NSPoint::new(self.player.bounds().size.width - 290.0, 24.0), NSSize::new(34.0, 34.0)));
-        self.player_shuffle_btn.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMinXMargin | NSAutoresizingMaskOptions::ViewMinYMargin);
+        self.player_shuffle_btn.setFrame(NSRect::new(NSPoint::new(14.0, cy - 14.0), NSSize::new(28.0, 28.0)));
         content.addSubview(&self.player_shuffle_btn);
 
-        let prev_title = NSString::from_str("◀");
-        let prev_btn = unsafe { NSButton::buttonWithTitle_target_action(&prev_title, Some(controller), Some(objc2::sel!(playerPrevious:)), mtm) };
-        prev_btn.setBordered(false);
-        prev_btn.setFont(Some(&NSFont::systemFontOfSize(15.0)));
-        prev_btn.setFrame(NSRect::new(NSPoint::new(self.player.bounds().size.width - 252.0, 24.0), NSSize::new(34.0, 34.0)));
-        prev_btn.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMinXMargin | NSAutoresizingMaskOptions::ViewMinYMargin);
-        content.addSubview(&prev_btn);
+        self.player_prev_btn.setFont(Some(&NSFont::systemFontOfSize(15.0)));
+        self.player_prev_btn.setFrame(NSRect::new(NSPoint::new(46.0, cy - 14.0), NSSize::new(28.0, 28.0)));
+        content.addSubview(&self.player_prev_btn);
 
-        self.player_play_btn.setFont(Some(&NSFont::systemFontOfSize(16.0)));
-        self.player_play_btn.setFrame(NSRect::new(NSPoint::new(self.player.bounds().size.width - 214.0, 24.0), NSSize::new(36.0, 34.0)));
-        self.player_play_btn.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMinXMargin | NSAutoresizingMaskOptions::ViewMinYMargin);
+        self.player_play_btn.setFont(Some(&NSFont::systemFontOfSize(18.0)));
+        self.player_play_btn.setFrame(NSRect::new(NSPoint::new(78.0, cy - 18.0), NSSize::new(36.0, 36.0)));
+        self.player_play_btn.setWantsLayer(true);
+        if let Some(layer) = self.player_play_btn.layer() {
+            layer.setCornerRadius(18.0);
+            layer.setMasksToBounds(false);
+        }
         content.addSubview(&self.player_play_btn);
 
-        let next_title = NSString::from_str("▶▶");
-        let next_btn = unsafe { NSButton::buttonWithTitle_target_action(&next_title, Some(controller), Some(objc2::sel!(playerNext:)), mtm) };
-        next_btn.setBordered(false);
-        next_btn.setFont(Some(&NSFont::systemFontOfSize(15.0)));
-        next_btn.setFrame(NSRect::new(NSPoint::new(self.player.bounds().size.width - 174.0, 24.0), NSSize::new(38.0, 34.0)));
-        next_btn.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMinXMargin | NSAutoresizingMaskOptions::ViewMinYMargin);
-        content.addSubview(&next_btn);
+        self.player_next_btn.setFont(Some(&NSFont::systemFontOfSize(15.0)));
+        self.player_next_btn.setFrame(NSRect::new(NSPoint::new(120.0, cy - 14.0), NSSize::new(28.0, 28.0)));
+        content.addSubview(&self.player_next_btn);
 
         self.player_repeat_btn.setFont(Some(&NSFont::systemFontOfSize(15.0)));
-        self.player_repeat_btn.setFrame(NSRect::new(NSPoint::new(self.player.bounds().size.width - 132.0, 24.0), NSSize::new(34.0, 34.0)));
-        self.player_repeat_btn.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMinXMargin | NSAutoresizingMaskOptions::ViewMinYMargin);
+        self.player_repeat_btn.setFrame(NSRect::new(NSPoint::new(152.0, cy - 14.0), NSSize::new(28.0, 28.0)));
         content.addSubview(&self.player_repeat_btn);
 
-        // Secondary Action Controls (Like, Queue)
-        self.player_like_btn.setFont(Some(&NSFont::systemFontOfSize(16.0)));
-        self.player_like_btn.setFrame(NSRect::new(NSPoint::new(self.player.bounds().size.width - 86.0, 24.0), NSSize::new(34.0, 34.0)));
-        self.player_like_btn.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMinXMargin | NSAutoresizingMaskOptions::ViewMinYMargin);
+        // Right utility cluster — 28pt buttons, 8pt gaps, vertically centered
+        // Order left→right: waveform · ⋯ · lyrics · queue · volume
+        let right_x = p_w - 14.0;
+        // Volume uses SF Symbol image, not font — keep frame only here
+        self.player_volume_btn.setFrame(NSRect::new(NSPoint::new(right_x - 28.0, cy - 14.0), NSSize::new(28.0, 28.0)));
+        content.addSubview(&self.player_volume_btn);
+
+        self.player_queue_btn.setFont(Some(&NSFont::systemFontOfSize(14.0)));
+        self.player_queue_btn.setFrame(NSRect::new(NSPoint::new(right_x - 64.0, cy - 14.0), NSSize::new(28.0, 28.0)));
+        content.addSubview(&self.player_queue_btn);
+
+        self.player_lyrics_btn.setFont(Some(&NSFont::systemFontOfSize(14.0)));
+        self.player_lyrics_btn.setFrame(NSRect::new(NSPoint::new(right_x - 100.0, cy - 14.0), NSSize::new(28.0, 28.0)));
+        content.addSubview(&self.player_lyrics_btn);
+
+        self.player_more_btn.setFont(Some(&NSFont::systemFontOfSize(14.0)));
+        self.player_more_btn.setFrame(NSRect::new(NSPoint::new(right_x - 136.0, cy - 14.0), NSSize::new(28.0, 28.0)));
+        content.addSubview(&self.player_more_btn);
+
+        self.player_waveform_btn.setFont(Some(&NSFont::systemFontOfSize(14.0)));
+        self.player_waveform_btn.setFrame(NSRect::new(NSPoint::new(right_x - 172.0, cy - 14.0), NSSize::new(28.0, 28.0)));
+        content.addSubview(&self.player_waveform_btn);
+
+        // Keep legacy like button hidden (replaced by ⋯) — retain for state updates but offscreen
+        self.player_like_btn.setFrame(NSRect::new(NSPoint::new(-100.0, -100.0), NSSize::new(0.0, 0.0)));
+        self.player_like_btn.setHidden(true);
         content.addSubview(&self.player_like_btn);
 
-        let queue_title = NSString::from_str("≡");
-        let queue_btn = unsafe { NSButton::buttonWithTitle_target_action(&queue_title, Some(controller), Some(objc2::sel!(playerQueue:)), mtm) };
-        queue_btn.setBordered(false);
-        queue_btn.setFont(Some(&NSFont::systemFontOfSize(16.0)));
-        queue_btn.setFrame(NSRect::new(NSPoint::new(self.player.bounds().size.width - 48.0, 24.0), NSSize::new(34.0, 34.0)));
-        queue_btn.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMinXMargin | NSAutoresizingMaskOptions::ViewMinYMargin);
-        content.addSubview(&queue_btn);
-
-        // Progress slider (seek) — shifted down to clear artist label, now starts after time label
-        self.player_progress_slider.setFrame(NSRect::new(NSPoint::new(160.0, 8.0), NSSize::new((self.player.bounds().size.width - 346.0).max(80.0), 14.0)));
-        self.player_progress_slider.setAutoresizingMask(NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewMinYMargin);
+        // Inset hairline progress — knobless, Apple-pill style
+        // Inset 24pt each side so the 4pt line sits inside the capsule curve at y=4
+        // (at y=4 with radius 33, inset 14 clips ~3pt into the corner; 24 stays fully inside)
+        self.player_progress_slider.setFrame(NSRect::new(NSPoint::new(24.0, 4.0), NSSize::new((p_w - 48.0).max(80.0), 4.0)));
+        self.player_progress_slider.setControlSize(objc2_app_kit::NSControlSize::Mini);
+        self.player_progress_slider.setWantsLayer(true);
+        if let Some(layer) = self.player_progress_slider.layer() {
+            layer.setCornerRadius(2.0);
+            layer.setMasksToBounds(true);
+        }
+        // Drop the knob — knobless line; keep it crash-safe (no empty image alloc)
+        unsafe {
+            let cell: *mut AnyObject = msg_send![&*self.player_progress_slider, cell];
+            if !cell.is_null() {
+                let _: () = msg_send![cell, setKnobThickness: 0.0];
+            }
+        }
         content.addSubview(&self.player_progress_slider);
 
-        // Volume slider - right side small slider
-        self.player_volume_slider.setFrame(NSRect::new(NSPoint::new(self.player.bounds().size.width - 118.0, 8.0), NSSize::new(70.0, 14.0)));
-        self.player_volume_slider.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMinXMargin | NSAutoresizingMaskOptions::ViewMinYMargin);
-        content.addSubview(&self.player_volume_slider);
+        // Volume slider now lives in the detached popover — keep pill clean so buttons are never covered
     }
 
-    fn position_traffic_lights(&self, parent: &NSView) {
+    fn position_traffic_lights(&self, _parent: &NSView) {
         // Move native traffic lights from the window chrome into the sidebar
         // glass capsule, like Finder/Music. Buttons live in the titlebar's
         // superview; their frameOrigin is in that superview's coordinates.
         // Finder places them ~20pt below the window top (8pt below the 12pt
         // outer inset), i.e. ~12pt inside a 32pt titlebar and 20pt spaced.
-        let win_frame = self._window.frame();
-        let win_h = win_frame.size.height;
-        let parent_h = parent.bounds().size.height;
-        eprintln!("[traffic] win_h={:.1} parent_h={:.1}", win_h, parent_h);
         unsafe {
             let close: Option<Retained<NSButton>> = msg_send![&*self._window, standardWindowButton: 0u64];
             let mini: Option<Retained<NSButton>> = msg_send![&*self._window, standardWindowButton: 1u64];
             let zoom: Option<Retained<NSButton>> = msg_send![&*self._window, standardWindowButton: 2u64];
-            eprintln!("[traffic] buttons close={} mini={} zoom={}", close.is_some(), mini.is_some(), zoom.is_some());
             if let Some(ref btn) = close {
                 if let Some(sv) = btn.superview() {
                     let sh = sv.bounds().size.height;
-                    eprintln!("[traffic] close superview h={:.1} frame={:?}", sh, btn.frame());
                     let ly = if (20.0..=40.0).contains(&sh) { sh - 34.0 } else { -2.0 };
                     btn.setFrameOrigin(NSPoint::new(SIDEBAR_INSET + 16.0, ly));
                 } else {
@@ -484,7 +673,8 @@ impl NativeGlassManager {
     }
 
     fn position_controls(&self) {
-        let Some(content) = self.sidebar.contentView() else { return; };
+        // sidebar content is first subview (VisualEffect has no contentView)
+        let Some(content) = self.sidebar.subviews().firstObject() else { return; };
         let height = content.bounds().size.height;
         let subviews = content.subviews();
         for (index, view) in subviews.iter().enumerate() {
@@ -513,6 +703,7 @@ impl NativeGlassManager {
             self.webview.setAutoresizingMask(
                 NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
             );
+            self.volume_popover.setHidden(true);
         } else {
             // NORMAL MODE:
             // Native sidebar on left, WKWebView in main content area, Native mini-player at bottom.
@@ -537,11 +728,13 @@ impl NativeGlassManager {
             self.webview.setAutoresizingMask(
                 NSAutoresizingMaskOptions::ViewWidthSizable | NSAutoresizingMaskOptions::ViewHeightSizable,
             );
-            let player_width = ((bounds.size.width - SIDEBAR_WIDTH - 120.0).min(820.0)).max(460.0);
+            let player_width = ((bounds.size.width - SIDEBAR_WIDTH - 32.0).min(860.0)).max(560.0);
+            let p_h: f64 = 66.0;
             self.player.setFrame(NSRect::new(
-                NSPoint::new(SIDEBAR_WIDTH + ((bounds.size.width - SIDEBAR_WIDTH - player_width) / 2.0), 18.0),
-                NSSize::new(player_width, 82.0),
+                NSPoint::new(SIDEBAR_WIDTH + ((bounds.size.width - SIDEBAR_WIDTH - player_width) / 2.0), 14.0),
+                NSSize::new(player_width, p_h),
             ));
+            if let Some(l) = self.player.layer() { l.setCornerRadius(p_h / 2.0); l.setMasksToBounds(true); }
             self.player.setAutoresizingMask(
                 NSAutoresizingMaskOptions::ViewMinXMargin
                     | NSAutoresizingMaskOptions::ViewMaxXMargin
@@ -549,13 +742,46 @@ impl NativeGlassManager {
             );
             self.position_controls();
             self.position_traffic_lights(&parent);
-            // Keep time/progress aligned after player width changes
+            // Apple pill reflow — keep transport/meta/right cluster + hairline in sync on resize
             let p_w = self.player.bounds().size.width;
             if p_w > 100.0 {
-                // time left, progress centered, volume right
-                self.player_time_label.setFrame(NSRect::new(NSPoint::new(74.0, 8.0), NSSize::new(80.0, 14.0)));
-                self.player_progress_slider.setFrame(NSRect::new(NSPoint::new(160.0, 8.0), NSSize::new((p_w - 346.0).max(80.0), 14.0)));
-                self.player_volume_slider.setFrame(NSRect::new(NSPoint::new(p_w - 118.0, 8.0), NSSize::new(70.0, 14.0)));
+                if let Some(content) = self.player.subviews().firstObject().as_deref() {
+                    content.setFrame(self.player.bounds());
+                    let art_size: f64 = 44.0;
+                    let art_x: f64 = 212.0;
+                    let art_y: f64 = (p_h - art_size) / 2.0 + 4.0;
+                    let cy: f64 = (p_h / 2.0) + 5.0;
+                    self.player_cover.setFrame(NSRect::new(NSPoint::new(art_x, art_y), NSSize::new(art_size, art_size)));
+                    self.player_cover_btn.setFrame(NSRect::new(NSPoint::new(art_x, art_y), NSSize::new(art_size, art_size)));
+                    let meta_w = (p_w - art_x - art_size - 230.0).max(120.0);
+                    self.player_title.setFrame(NSRect::new(NSPoint::new(art_x + art_size + 10.0, art_y + 22.0), NSSize::new(meta_w, 15.0)));
+                    self.player_artist.setFrame(NSRect::new(NSPoint::new(art_x + art_size + 10.0, art_y + 8.0), NSSize::new(meta_w, 12.0)));
+                    self.player_shuffle_btn.setFrame(NSRect::new(NSPoint::new(14.0, cy - 14.0), NSSize::new(28.0, 28.0)));
+                    self.player_prev_btn.setFrame(NSRect::new(NSPoint::new(46.0, cy - 14.0), NSSize::new(28.0, 28.0)));
+                    self.player_play_btn.setFrame(NSRect::new(NSPoint::new(78.0, cy - 18.0), NSSize::new(36.0, 36.0)));
+                    self.player_next_btn.setFrame(NSRect::new(NSPoint::new(120.0, cy - 14.0), NSSize::new(28.0, 28.0)));
+                    self.player_repeat_btn.setFrame(NSRect::new(NSPoint::new(152.0, cy - 14.0), NSSize::new(28.0, 28.0)));
+                    let right_x = p_w - 14.0;
+                    self.player_volume_btn.setFrame(NSRect::new(NSPoint::new(right_x - 28.0, cy - 14.0), NSSize::new(28.0, 28.0)));
+                    self.player_queue_btn.setFrame(NSRect::new(NSPoint::new(right_x - 64.0, cy - 14.0), NSSize::new(28.0, 28.0)));
+                    self.player_lyrics_btn.setFrame(NSRect::new(NSPoint::new(right_x - 100.0, cy - 14.0), NSSize::new(28.0, 28.0)));
+                    self.player_more_btn.setFrame(NSRect::new(NSPoint::new(right_x - 136.0, cy - 14.0), NSSize::new(28.0, 28.0)));
+                    self.player_waveform_btn.setFrame(NSRect::new(NSPoint::new(right_x - 172.0, cy - 14.0), NSSize::new(28.0, 28.0)));
+                    self.player_progress_slider.setFrame(NSRect::new(NSPoint::new(24.0, 4.0), NSSize::new((p_w - 48.0).max(80.0), 4.0)));
+                }
+                // Float the detached volume bubble above the speaker — never inside the pill
+                let popover_w: f64 = 144.0;
+                let popover_h: f64 = 36.0;
+                let player_frame = self.player.frame();
+                let popover_x = player_frame.origin.x + player_frame.size.width - popover_w - 6.0;
+                let popover_y = player_frame.origin.y + player_frame.size.height + 8.0;
+                self.volume_popover.setFrame(NSRect::new(NSPoint::new(popover_x, popover_y), NSSize::new(popover_w, popover_h)));
+                self.volume_popover.setAutoresizingMask(NSAutoresizingMaskOptions::ViewMinXMargin | NSAutoresizingMaskOptions::ViewMinYMargin);
+                if let Some(content) = self.volume_popover.subviews().firstObject() {
+                    content.setFrame(self.volume_popover.bounds());
+                    // keep slider centered inside bubble
+                    self.player_volume_slider.setFrame(NSRect::new(NSPoint::new(12.0, 10.0), NSSize::new(popover_w - 24.0, 16.0)));
+                }
             }
         }
     }
@@ -575,72 +801,156 @@ impl NativeGlassManager {
         }
     }
 
+    pub fn toggle_volume_popover(&self) {
+        if !self.is_attached {
+            return;
+        }
+        let hidden = self.volume_popover.isHidden();
+        self.volume_popover.setHidden(!hidden);
+    }
+
     pub fn update_player_state(&self, state: NativePlayerState) {
         if let Some(lyrics) = state.in_lyrics_mode {
-            self.set_lyrics_mode(lyrics);
-        }
-
-        self.player_title.setStringValue(&NSString::from_str(&state.title));
-        self.player_artist.setStringValue(&NSString::from_str(&state.artist));
-        self.player_play_btn.setTitle(&NSString::from_str(if state.playing { "❚❚" } else { "▶" }));
-
-        if let Some(progress) = state.progress {
-            self.player_progress_slider.setDoubleValue(progress);
-        }
-
-        if let Some(volume) = state.volume {
-            self.player_volume_slider.setDoubleValue(volume);
-        }
-
-        if let Some(ref cover_str) = state.cover {
-            if !cover_str.trim().is_empty() {
-                let bytes_opt = if cover_str.starts_with("data:") {
-                    cover_str.split_once(',').and_then(|(_, b64)| {
-                        base64::engine::general_purpose::STANDARD.decode(b64).ok()
-                    })
-                } else if let Ok(data) = std::fs::read(cover_str) {
-                    Some(data)
-                } else {
-                    None
-                };
-
-                if let Some(bytes) = bytes_opt {
-                    let ns_data = objc2_foundation::NSData::with_bytes(&bytes);
-                    let ns_image = NSImage::initWithData(NSImage::alloc(), &ns_data);
-                    self.player_cover.setImage(ns_image.as_deref());
-                } else {
-                    self.player_cover.setImage(None);
-                }
-            } else {
-                self.player_cover.setImage(None);
+            // Avoid redundant layout thrash if mode hasn't changed
+            if lyrics != self.in_lyrics_mode.load(Ordering::Relaxed) {
+                self.set_lyrics_mode(lyrics);
             }
-        } else {
-            self.player_cover.setImage(None);
+        }
+
+        // Title — only when changed
+        {
+            let mut last = self.last_title.lock().unwrap();
+            if last.as_deref() != Some(&state.title) {
+                self.player_title.setStringValue(&NSString::from_str(&state.title));
+                *last = Some(state.title.clone());
+            }
+        }
+        // Artist — only when changed
+        {
+            let mut last = self.last_artist.lock().unwrap();
+            if last.as_deref() != Some(&state.artist) {
+                self.player_artist.setStringValue(&NSString::from_str(&state.artist));
+                *last = Some(state.artist.clone());
+            }
+        }
+        // Playing state — dirty check (modern glyphs)
+        {
+            let init = self.last_playing_init.load(Ordering::Relaxed);
+            let last = self.last_playing.load(Ordering::Relaxed);
+            if !init || last != state.playing {
+                self.player_play_btn
+                    .setTitle(&NSString::from_str(if state.playing { "⏸" } else { "▶" }));
+                self.last_playing.store(state.playing, Ordering::Relaxed);
+                self.last_playing_init.store(true, Ordering::Relaxed);
+            }
+        }
+
+        // Progress — coalesce tiny changes (<0.08%) to avoid slider thrash
+        if let Some(progress) = state.progress {
+            let last_bits = self.last_progress_bits.load(Ordering::Relaxed);
+            let last = f64::from_bits(last_bits);
+            let should_update = if last.is_nan() {
+                true
+            } else {
+                (progress - last).abs() >= 0.08
+            };
+            if should_update {
+                self.player_progress_slider.setDoubleValue(progress);
+                self.last_progress_bits
+                    .store(progress.to_bits(), Ordering::Relaxed);
+            }
+        }
+
+        // Volume — coalesce <0.5 changes
+        if let Some(volume) = state.volume {
+            let last_bits = self.last_volume_bits.load(Ordering::Relaxed);
+            let last = f64::from_bits(last_bits);
+            let should_update = if last.is_nan() {
+                true
+            } else {
+                (volume - last).abs() >= 0.5
+            };
+            if should_update {
+                self.player_volume_slider.setDoubleValue(volume);
+                self.last_volume_bits.store(volume.to_bits(), Ordering::Relaxed);
+            }
+        }
+
+        // Cover — decode only when identifier changes; cache prevents re-decode on every tick
+        // Note: None means no update (progress-only tick), not “clear”.
+        if let Some(ref cover_str) = state.cover {
+            let should_decode = {
+                let last = self.last_cover.lock().unwrap();
+                last.as_deref() != Some(cover_str.as_str())
+            };
+            if should_decode {
+                if cover_str.trim().is_empty() {
+                    self.player_cover.setImage(None);
+                } else {
+                    let bytes_opt = if cover_str.starts_with("data:") {
+                        cover_str.split_once(',').and_then(|(_, b64)| {
+                            base64::engine::general_purpose::STANDARD.decode(b64).ok()
+                        })
+                    } else if let Ok(data) = std::fs::read(cover_str) {
+                        Some(data)
+                    } else {
+                        None
+                    };
+
+                    if let Some(bytes) = bytes_opt {
+                        let ns_data = objc2_foundation::NSData::with_bytes(&bytes);
+                        let ns_image = NSImage::initWithData(NSImage::alloc(), &ns_data);
+                        self.player_cover.setImage(ns_image.as_deref());
+                    } else {
+                        self.player_cover.setImage(None);
+                    }
+                }
+                *self.last_cover.lock().unwrap() = Some(cover_str.clone());
+            }
         }
 
         if let Some(liked) = state.liked {
-            self.player_like_btn.setTitle(&NSString::from_str(if liked { "♥" } else { "♡" }));
+            let mut last = self.last_liked.lock().unwrap();
+            if *last != Some(liked) {
+                self.player_like_btn
+                    .setTitle(&NSString::from_str(if liked { "♥" } else { "♡" }));
+                *last = Some(liked);
+            }
         }
 
         if let Some(shuffle) = state.shuffle {
-            self.player_shuffle_btn.setTitle(&NSString::from_str(if shuffle { "🔀" } else { "⇄" }));
+            let mut last = self.last_shuffle.lock().unwrap();
+            if *last != Some(shuffle) {
+                self.player_shuffle_btn
+                    .setTitle(&NSString::from_str(if shuffle { "🔀" } else { "⇄" }));
+                *last = Some(shuffle);
+            }
         }
 
-        if let Some(repeat_mode) = state.repeat {
-            let sym = match repeat_mode.as_str() {
-                "one" => "🔂",
-                "all" => "🔁",
-                _ => "↺",
-            };
-            self.player_repeat_btn.setTitle(&NSString::from_str(sym));
+        if let Some(ref repeat_mode) = state.repeat {
+            let mut last = self.last_repeat.lock().unwrap();
+            if last.as_deref() != Some(repeat_mode.as_str()) {
+                let sym = match repeat_mode.as_str() {
+                    "one" => "🔂",
+                    "all" => "🔁",
+                    _ => "↺",
+                };
+                self.player_repeat_btn.setTitle(&NSString::from_str(sym));
+                *last = Some(repeat_mode.clone());
+            }
         }
 
-        // Update time label — show elapsed / total like 1:34 / 2:50
+        // Update time label — only when string changes
         if state.elapsed.is_some() || state.total.is_some() {
             let elapsed = state.elapsed.as_deref().unwrap_or("0:00");
             let total = state.total.as_deref().unwrap_or("0:00");
             let combined = format!("{} / {}", elapsed, total);
-            self.player_time_label.setStringValue(&NSString::from_str(&combined));
+            let mut last = self.last_time_label.lock().unwrap();
+            if last.as_deref() != Some(&combined) {
+                self.player_time_label
+                    .setStringValue(&NSString::from_str(&combined));
+                *last = Some(combined);
+            }
         }
     }
 }

@@ -19,19 +19,19 @@ export function parseLRC(text) {
   if (!text || typeof text !== 'string') return [];
   const lines = text.split('\n');
   const result = [];
-  const timeReg = /\[(\d{2}):(\d{2})\.(\d{2,3})\]/;
+  const timeRegAll = /\[(\d{2}):(\d{2})\.(\d{2,3})\]/g;
 
   for (let line of lines) {
-    const match = timeReg.exec(line);
-    if (match) {
+    const matches = [...line.matchAll(timeRegAll)];
+    if (matches.length === 0) continue;
+    const lyricText = line.replace(timeRegAll, '').trim();
+    if (!lyricText) continue;
+    for (const match of matches) {
       const minutes = parseInt(match[1], 10);
       const seconds = parseInt(match[2], 10);
       const ms = parseInt(match[3], 10);
       const time = minutes * 60 + seconds + (ms / (match[3].length === 3 ? 1000 : 100));
-      const lyricText = line.replace(timeReg, '').trim();
-      if (lyricText) {
-        result.push({ time, text: lyricText });
-      }
+      result.push({ time, text: lyricText });
     }
   }
   return result.sort((a, b) => a.time - b.time);

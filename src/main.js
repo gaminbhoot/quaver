@@ -1259,6 +1259,8 @@ restoreSavedLibrary();
 if (window.__TAURI__?.event?.listen) {
   window.__TAURI__.event.listen('native-sidebar-ready', () => {
     document.documentElement.classList.add('native-sidebar-active');
+    if (typeof syncNativePlayer === 'function') syncNativePlayer();
+    invoke('sync_native_sidebar').catch(() => {});
   });
 
   window.__TAURI__.event.listen('trigger-add-folder', () => {
@@ -1329,20 +1331,22 @@ if (window.__TAURI__?.event?.listen) {
           }
         }
         break;
+      case 'toggle-volume-popover':
+        invoke('toggle_native_volume').catch(() => {});
+        break;
     }
   });
 }
 
 // The AppKit sidebar uses native autoresizing. This keeps its frame exact when
 // WebKit reports fullscreen/resize changes after a title-bar transition.
+// Do NOT add `native-sidebar-active` optimistically — only the
+// `native-sidebar-ready` event (emitted after AppKit actually attaches)
+// hides the web sidebar/mini-player. Otherwise the web UI disappears
+// while native is still initializing (or if it fails).
 window.addEventListener('resize', () => invoke('sync_native_sidebar').catch(() => {}));
 window.addEventListener('fullscreenchange', () => invoke('sync_native_sidebar').catch(() => {}));
-invoke('sync_native_sidebar')
-  .then(() => {
-    document.documentElement.classList.add('native-sidebar-active');
-    syncNativePlayer();
-  })
-  .catch(() => {});
+invoke('sync_native_sidebar').catch(() => {});
 
 // --- Dynamic App Icon OS Theme & Style Selector ---
 function updateAppIconStyle(selectedStyle) {

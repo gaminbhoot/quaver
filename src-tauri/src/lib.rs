@@ -161,7 +161,7 @@ fn scan_directory(dir_path: String) -> Vec<TrackMetadata> {
 
                         tracks.push(TrackMetadata {
                             path: path.to_string_lossy().to_string(),
-                            title,
+                            title: title.clone(),
                             artist,
                             album,
                             duration,
@@ -206,6 +206,12 @@ fn update_lyrics_mode(enabled: bool, window: tauri::WebviewWindow) {
     let _ = window.run_on_main_thread(move || macos::window::update_lyrics_mode(enabled));
 }
 
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn toggle_native_volume(window: tauri::WebviewWindow) {
+    let _ = window.run_on_main_thread(|| macos::window::toggle_volume_popover());
+}
+
 #[cfg(not(target_os = "macos"))]
 #[tauri::command]
 fn sync_native_sidebar() {}
@@ -217,6 +223,10 @@ fn update_native_player(_state: serde_json::Value) {}
 #[cfg(not(target_os = "macos"))]
 #[tauri::command]
 fn update_lyrics_mode(_enabled: bool) {}
+
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn toggle_native_volume() {}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -240,14 +250,29 @@ pub fn run() {
             start_drag,
             sync_native_sidebar,
             update_native_player,
-            update_lyrics_mode
+            update_lyrics_mode,
+            toggle_native_volume
         ])
         .setup(|app| {
-            // Initialize native AppKit sidebar on the main window.
+            // Defer native glass off the cannot-unwind `did_finish_launching` stack.
+            // Direct `with_webview` init there aborts on any ObjC exception / Rust
+            // panic. Dispatching to the main queue after setup returns runs outside
+            // that boundary; the web sidebar/mini-player remain visible until the
+            // native surfaces attach and the frontend hides them via
+            // `html.native-sidebar-active`.
             #[cfg(target_os = "macos")]
             {
                 if let Some(window) = app.get_webview_window("main") {
-                    macos::window::initialize_native_sidebar(&window, app.handle().clone());
+                    let win = window.clone();
+                    let handle = app.handle().clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(90));
+                        let win2 = win.clone();
+                        let handle2 = handle.clone();
+                        let _ = win.run_on_main_thread(move || {
+                            macos::window::initialize_native_sidebar(&win2, handle2);
+                        });
+                    });
                 }
             }
             Ok(())
