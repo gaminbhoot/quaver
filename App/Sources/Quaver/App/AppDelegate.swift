@@ -1,7 +1,10 @@
 import AppKit
 
+@MainActor
 final class QuaverApp: NSObject, NSApplicationDelegate {
     var windowController: QuaverWindowController?
+    private var nowPlayingController: NowPlayingInfoController?
+    private var eventMonitor: Any?
 
     func applicationWillFinishLaunching(_ notification: Notification) {
         _ = NSApp.setActivationPolicy(.regular)
@@ -14,50 +17,23 @@ final class QuaverApp: NSObject, NSApplicationDelegate {
         }
         quaverEarlyLog("didFinish — activationPolicy=\(NSApp.activationPolicy().rawValue) isActive=\(NSApp.isActive)")
 
+        // Build full menu before window so shortcuts target correctly.
         if NSApp.mainMenu == nil {
-            let mainMenu = NSMenu()
-            let appMenuItem = NSMenuItem()
-            mainMenu.addItem(appMenuItem)
-            let appMenu = NSMenu()
-            appMenu.addItem(NSMenuItem(title: "About Quaver", action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)), keyEquivalent: ""))
-            appMenu.addItem(.separator())
-            appMenu.addItem(NSMenuItem(title: "Hide Quaver", action: #selector(NSApplication.hide(_:)), keyEquivalent: "h"))
-            appMenu.addItem(NSMenuItem(title: "Quit Quaver", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q"))
-            appMenuItem.submenu = appMenu
-            let editMenuItem = NSMenuItem()
-            mainMenu.addItem(editMenuItem)
-            let editMenu = NSMenu(title: "Edit")
-            editMenu.addItem(NSMenuItem(title: "Undo", action: Selector(("undo:")), keyEquivalent: "z"))
-            editMenu.addItem(NSMenuItem(title: "Redo", action: Selector(("redo:")), keyEquivalent: "Z"))
-            editMenu.addItem(.separator())
-            editMenu.addItem(NSMenuItem(title: "Cut", action: #selector(NSText.cut(_:)), keyEquivalent: "x"))
-            editMenu.addItem(NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c"))
-            editMenu.addItem(NSMenuItem(title: "Paste", action: #selector(NSText.paste(_:)), keyEquivalent: "v"))
-            editMenu.addItem(NSMenuItem(title: "Select All", action: #selector(NSText.selectAll(_:)), keyEquivalent: "a"))
-            editMenuItem.submenu = editMenu
-            let findMenuItem = NSMenuItem()
-            mainMenu.addItem(findMenuItem)
-            let findMenu = NSMenu(title: "Find")
-            findMenu.addItem(NSMenuItem(title: "Find…", action: #selector(NSSearchField.performClick(_:)), keyEquivalent: "k"))
-            findMenuItem.submenu = findMenu
-            NSApp.mainMenu = mainMenu
+            NSApp.mainMenu = QuaverMenuBuilder.buildMainMenu()
+        } else {
+            // Rebuild to ensure our expanded menu replaces the minimal placeholder.
+            NSApp.mainMenu = QuaverMenuBuilder.buildMainMenu()
         }
 
-        NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-            if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers?.lowercased() == "k" {
-                if let win = NSApp.keyWindow, let wc = win.windowController as? QuaverWindowController {
-                    if let field = Self.findSearchField(in: wc.rootSplit.sidebarVC.view) {
-                        win.makeFirstResponder(field)
-                        return nil
-                    }
-                }
-            }
-            return event
-        }
+        installGlobalKeyHandling()
 
         // === Create and present window — exact diagnostic sequence requested ===
         let controller = QuaverWindowController()
         windowController = controller // retain for lifetime
+
+        // Media integration — single engine, single nowPlaying controller.
+        nowPlayingController = NowPlayingInfoController(engine: controller.rootSplit.engine)
+
         logExact(controller: controller, label: "INIT after QuaverWindowController() — window.center() already called in init")
 
         // Explicit before/after for each step the user requested
@@ -110,6 +86,132 @@ final class QuaverApp: NSObject, NSApplicationDelegate {
             }
         }
     }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        if let m = eventMonitor { NSEvent.removeMonitor(m); eventMonitor = nil }
+        nowPlayingController?.invalidate()
+        nowPlayingController = nil
+    }
+
+    // MARK: - Global keyboard
+
+    private func installGlobalKeyHandling() {
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self else { return event }
+            // Allow text editing to handle its own keys.
+            if self.isInTextEditingContext() { return event }
+
+            // Cmd+K → Search
+            if event.modifierFlags.contains(.command) && event.charactersIgnoringModifiers?.lowercased() == "k" {
+                if let win = NSApp.keyWindow, let wc = win.windowController as? QuaverWindowController {
+                    if let field = Self.findSearchField(in: wc.rootSplit.sidebarVC.view) {
+                        win.makeFirstResponder(field)
+                        return nil
+                    }
+                }
+            }
+            // Cmd+numbers → Views (fallback if menu accelerators not hit when field focused)
+            if event.modifierFlags.contains(.command), let chars = event.charactersIgnoringModifiers {
+                switch chars {
+                case "1": self.viewAllSongs(nil); return nil
+                case "2": self.viewLikedSongs(nil); return nil
+                case "3": self.viewRecentlyPlayed(nil); return nil
+                case "4": self.viewArtists(nil); return nil
+                case "5": self.viewAlbums(nil); return nil
+                case "l", "L": self.toggleLyrics(nil); return nil
+                default: break
+                }
+            }
+            // Space → Play/Pause (only when not typing, no modifiers)
+            if event.keyCode == 49 && event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty {
+                // Space often goes to button; we handle it as play/pause for convenience.
+                // Only if window is key and we are in content context.
+                if NSApp.keyWindow != nil {
+                    self.togglePlay(nil)
+                    return nil
+                }
+            }
+            return event
+        }
+    }
+
+    private func isInTextEditingContext() -> Bool {
+        guard let win = NSApp.keyWindow, let first = win.firstResponder else { return false }
+        if first is NSTextView { return true }
+        if first is NSTextField { return true }
+        if first is NSSearchField { return true }
+        // Check via class name to avoid missing custom editors
+        let clsName = String(describing: type(of: first))
+        if clsName.contains("Text") { return true }
+        return false
+    }
+
+    // MARK: - Menu actions (all funnel to single engine / RootSplit)
+
+    @objc func addMusicFolder(_ sender: Any?) {
+        windowController?.rootSplit.handleAddFolderRequest()
+    }
+    @objc func createPlaylist(_ sender: Any?) {
+        windowController?.rootSplit.handleCreatePlaylistRequest()
+    }
+    @objc func togglePlay(_ sender: Any?) {
+        windowController?.rootSplit.engine.togglePlay()
+    }
+    @objc func nextTrack(_ sender: Any?) {
+        windowController?.rootSplit.engine.next()
+    }
+    @objc func previousTrack(_ sender: Any?) {
+        windowController?.rootSplit.engine.previous()
+    }
+    @objc func toggleShuffle(_ sender: Any?) {
+        guard let eng = windowController?.rootSplit.engine else { return }
+        eng.setShuffle(!eng.state.isShuffle)
+    }
+    @objc func cycleRepeat(_ sender: Any?) {
+        guard let eng = windowController?.rootSplit.engine else { return }
+        let next: RepeatMode
+        switch eng.state.repeatMode {
+        case .off: next = .all
+        case .all: next = .one
+        case .one: next = .off
+        }
+        eng.setRepeatMode(next)
+    }
+    @objc func viewAllSongs(_ sender: Any?) { navigate(to: .all) }
+    @objc func viewLikedSongs(_ sender: Any?) { navigate(to: .liked) }
+    @objc func viewRecentlyPlayed(_ sender: Any?) { navigate(to: .recent) }
+    @objc func viewArtists(_ sender: Any?) { navigate(to: .artists) }
+    @objc func viewAlbums(_ sender: Any?) { navigate(to: .albums) }
+    @objc func toggleLyrics(_ sender: Any?) { windowController?.rootSplit.toggleLyrics() }
+    @objc func find(_ sender: Any?) {
+        guard let win = NSApp.keyWindow, let wc = win.windowController as? QuaverWindowController else { return }
+        if let field = Self.findSearchField(in: wc.rootSplit.sidebarVC.view) {
+            win.makeFirstResponder(field)
+        }
+    }
+    @objc func showPreferences(_ sender: Any?) { NSSound.beep() }
+    @objc func showHelp(_ sender: Any?) {
+        if let url = URL(string: "https://github.com/gaminbhoot/quaver") {
+            NSWorkspace.shared.open(url)
+        }
+    }
+
+    private func navigate(to view: LibraryView) {
+        windowController?.rootSplit.navigate(to: view)
+    }
+
+    // MARK: - Menu validation
+
+    func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        let title = menuItem.title
+        // Playback items require a track to be meaningful — but we keep them enabled
+        // and they gracefully no-op if no track, similar to Apple Music.
+        if ["Shuffle", "Repeat"].contains(title) { return true }
+        // Preference / help always enabled
+        return true
+    }
+
+    // MARK: - Diagnostics
 
     private func logExact(controller: QuaverWindowController?, label: String) {
         let w = controller?.window

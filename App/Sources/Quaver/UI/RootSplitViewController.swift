@@ -174,25 +174,22 @@ final class RootSplitViewController: NSSplitViewController {
             sidebarWidthIdeal,
         ])
 
-        // Floating pill — capsule, compact, centered, detached from edges.
-        // Breathing room on all sides shows the calm library behind it. Width 560
-        // is sleek but responsive via leading/trailing >=12 and width <= available.
-        // Prevent overlap with sidebar at minimum width by keeping pill leading
-        // at least 12pt beyond sidebar's trailing edge. CenterX remains but with
-        // lower priority than the sidebar gap when compressed.
+        // Floating pill — centered in the LIBRARY area (sidebar.trailing → window trailing),
+        // not the whole window. Pill's center tracks libraryView.centerX so it stays
+        // visually balanced over the dominant content, with 12pt breathing room
+        // inside the library on both sides.
         let pillWidth = barView.widthAnchor.constraint(equalToConstant: 560)
-        pillWidth.priority = .defaultHigh
-        let pillCenterX = barView.centerXAnchor.constraint(equalTo: container.centerXAnchor)
+        pillWidth.priority = NSLayoutConstraint.Priority(500)
+        let pillCenterX = barView.centerXAnchor.constraint(equalTo: libraryView.centerXAnchor)
         pillCenterX.priority = .defaultHigh
-        let pillLeadingGap = barView.leadingAnchor.constraint(greaterThanOrEqualTo: sidebarView.trailingAnchor, constant: 12)
+        let pillLeadingGap = barView.leadingAnchor.constraint(greaterThanOrEqualTo: libraryView.leadingAnchor, constant: 12)
         pillLeadingGap.priority = .required
         NSLayoutConstraint.activate([
             pillCenterX,
             barView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
             barView.heightAnchor.constraint(equalToConstant: 68),
             pillWidth,
-            barView.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 12),
-            barView.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -12),
+            barView.trailingAnchor.constraint(lessThanOrEqualTo: libraryView.trailingAnchor, constant: -12),
             pillLeadingGap,
         ])
         // Make pill width responsive: at narrow widths it compresses via leading/trailing;
@@ -248,10 +245,15 @@ final class RootSplitViewController: NSSplitViewController {
         engine.setLibrary(tracks)
     }
 
-    func setViewForTest(_ view: LibraryView) {
-        self.selectedView = view
+    /// Canonical navigation (used by menu, shortcuts, and sidebar). Single path.
+    func navigate(to view: LibraryView) {
+        selectedView = view
         sidebarVC.selectView(view)
         libraryVC.setView(view)
+    }
+
+    func setViewForTest(_ view: LibraryView) {
+        navigate(to: view)
     }
 
     func scanFolder(_ path: String, persist: Bool = true) async {

@@ -14,6 +14,11 @@ final class QuaverWindowController: NSWindowController {
         super.init(window: window)
         // Host the split controller in the window — replaces the placeholder contentView
         window.contentViewController = rootSplit
+        // Preserve intended 1280×800 content size — Auto Layout's fitting size
+        // (sidebar 260 + pill 560) would otherwise shrink the window to 844 at
+        // launch. Keep the designed default, then allow user to resize down to
+        // 800 where the pill compresses.
+        window.setContentSize(NSSize(width: 1280, height: 800))
         // Early center (screen may still be nil at this point — AppDelegate will
         // re-center after ordering when screen is known; keep this for headless).
         window.center()
