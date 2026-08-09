@@ -4,7 +4,21 @@ import AppKit
 final class QuaverApp: NSObject, NSApplicationDelegate {
     var windowController: QuaverWindowController?
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        // Plain executable at /tmp/QuaverNativeApp has no Info.plist bundle;
+        // default activationPolicy would be .prohibited/.accessory and the
+        // window would never become visible (System Events visible = false).
+        // Force regular to guarantee a dock icon + visible window.
+        _ = NSApp.setActivationPolicy(.regular)
+        print("[Quaver] willFinish — activationPolicy=\(NSApp.activationPolicy().rawValue)")
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Safety: ensure regular even if willFinish was not called (headless probes)
+        if NSApp.activationPolicy() != .regular {
+            _ = NSApp.setActivationPolicy(.regular)
+        }
+        print("[Quaver] didFinish — activationPolicy=\(NSApp.activationPolicy().rawValue)")
         // Show menu bar — NSApplication without a nib has no main menu by default
         if NSApp.mainMenu == nil {
             let mainMenu = NSMenu()
@@ -58,9 +72,20 @@ final class QuaverApp: NSObject, NSApplicationDelegate {
         }
 
         let controller = QuaverWindowController()
-        controller.showWindow(nil)
+        // Retain BEFORE ordering so controller/window cannot be deallocated
+        // during the NSWindow ordering sequence (headless missed this).
         windowController = controller
+        controller.showWindow(nil)
+        // Explicit ordering — showWindow already does makeKeyAndOrderFront, but
+        // plain executable launch defaults to .prohibited without Info.plist
+        // unless we forced .regular in willFinishLaunching.
+        controller.window?.makeKeyAndOrderFront(nil)
+        controller.window?.orderFrontRegardless()
         NSApp.activate(ignoringOtherApps: true)
+        NSApp.unhide(nil)
+        // WindowServer diagnostic — visible=false on your Mac was activationPolicy
+        print("[Quaver] window isVisible=\(controller.window?.isVisible ?? false) isKeyWindow=\(controller.window?.isKeyWindow ?? false) occlusionState=\(controller.window?.occlusionState.rawValue ?? 0) frame=\(String(describing: controller.window?.frame))")
+        print("[Quaver] activationPolicy now \(NSApp.activationPolicy().rawValue) (0=regular)")
     }
 
     private static func findSearchField(in view: NSView) -> NSSearchField? {
