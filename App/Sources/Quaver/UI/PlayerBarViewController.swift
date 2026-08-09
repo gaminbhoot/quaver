@@ -225,11 +225,33 @@ final class PlayerBarViewController: NSViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        installGlassBackground()
         setupLayout()
         setupActions()
         bindEngine()
         render(engine.state)
         view.setAccessibilityLabel("Player")
+    }
+
+    private func installGlassBackground() {
+        let glass = QuaverGlass.backgroundView(for: .playerBar)
+        glass.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(glass, positioned: .below, relativeTo: nil)
+        NSLayoutConstraint.activate([
+            glass.topAnchor.constraint(equalTo: view.topAnchor),
+            glass.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            glass.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            glass.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+        // Make host transparent when real glass/material is used so the translucent
+        // effect shows without a hard opaque edge. Solid fallback keeps opaque.
+        if glass is NSVisualEffectView {
+            view.layer?.backgroundColor = NSColor.clear.cgColor
+        } else if #available(macOS 26.0, *) {
+            if glass is NSGlassEffectView {
+                view.layer?.backgroundColor = NSColor.clear.cgColor
+            }
+        }
     }
 
     // MARK: Layout

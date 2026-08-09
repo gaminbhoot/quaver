@@ -45,6 +45,8 @@ final class LyricsViewController: NSViewController {
         return v
     }()
 
+    private var glassView: NSView?
+
     private let scrollView: NSScrollView = {
         let sv = NSScrollView()
         sv.translatesAutoresizingMaskIntoConstraints = false
@@ -132,6 +134,35 @@ final class LyricsViewController: NSViewController {
     private func setupUI() {
         view.addSubview(backgroundView)
         view.addSubview(dimmingView)
+        // Native Liquid Glass / material surface for immersive lyrics — sits between
+        // artwork background and scroll content so artwork remains visible through
+        // genuine AppKit material without intercepting clicks.
+        let glass = QuaverGlass.backgroundView(for: .lyrics)
+        glass.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(glass)
+        self.glassView = glass
+        // When real glass/material is active, soften the solid dimming so the
+        // material shows through without a hard opaque edge. On reduced
+        // transparency the glass fallback is solid already, so hide dimming.
+        if glass is NSVisualEffectView {
+            dimmingView.layer?.backgroundColor = NSColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 0.45).cgColor
+        } else if #available(macOS 26.0, *) {
+            if glass is NSGlassEffectView {
+                dimmingView.layer?.backgroundColor = NSColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 0.35).cgColor
+            }
+        }
+        // If glass is the solid fallback (plain NSView), it already covers the
+        // dimming color — keep dimming but avoid double-opacity.
+        if !(glass is NSVisualEffectView) {
+            if #available(macOS 26.0, *) {
+                if !(glass is NSGlassEffectView) {
+                    // solid fallback — hide extra dimming to keep 0.85 single layer
+                    dimmingView.isHidden = true
+                }
+            } else {
+                dimmingView.isHidden = true
+            }
+        }
         view.addSubview(scrollView)
         view.addSubview(emptyLabel)
         view.addSubview(closeButton)
@@ -150,6 +181,11 @@ final class LyricsViewController: NSViewController {
             dimmingView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             dimmingView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             dimmingView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            glass.topAnchor.constraint(equalTo: view.topAnchor),
+            glass.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            glass.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            glass.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
             headerTrackLabel.topAnchor.constraint(equalTo: view.topAnchor, constant: 16),
             headerTrackLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),

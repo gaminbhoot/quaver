@@ -92,10 +92,34 @@ final class SidebarViewController: NSViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        installGlassBackground()
         setupLayout()
         setupTable()
         rebuildRows()
         selectInitial()
+    }
+
+    private func installGlassBackground() {
+        let glass = QuaverGlass.backgroundView(for: .sidebar)
+        glass.translatesAutoresizingMaskIntoConstraints = false
+        // Insert at back so controls remain interactive (glass must not intercept clicks)
+        view.addSubview(glass, positioned: .below, relativeTo: nil)
+        NSLayoutConstraint.activate([
+            glass.topAnchor.constraint(equalTo: view.topAnchor),
+            glass.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            glass.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            glass.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+        // When genuine glass/material is active, make the hosting view transparent
+        // so the material shows through without a hard opaque boundary.
+        // Solid fallback (reduced transparency) keeps the opaque background.
+        if glass is NSVisualEffectView {
+            view.layer?.backgroundColor = NSColor.clear.cgColor
+        } else if #available(macOS 26.0, *) {
+            if glass is NSGlassEffectView {
+                view.layer?.backgroundColor = NSColor.clear.cgColor
+            }
+        }
     }
 
     private func setupLayout() {
