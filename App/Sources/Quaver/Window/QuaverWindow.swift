@@ -14,6 +14,14 @@ final class QuaverWindow: NSWindow {
         titlebarAppearsTransparent = true
         isMovableByWindowBackground = false
         hasShadow = true
+        isReleasedWhenClosed = false
+        hidesOnDeactivate = false
+        level = .normal
+        // Ensure window appears on the active Space and is managed by Mission Control.
+        // This was missing — plain executable has no Info.plist, so collectionBehavior
+        // defaulted to 0 and the window could be ordered onto a non-visible Space
+        // (visible=true in System Events but no window on current desktop).
+        collectionBehavior = [.managed, .canJoinAllSpaces]
         backgroundColor = NSColor(named: "QuaverBackground") ?? NSColor(red: 0.11, green: 0.11, blue: 0.13, alpha: 1.0)
         minSize = NSSize(width: 800, height: 500)
         // Content view will be set by the root view controller in Phase 4+.

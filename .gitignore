@@ -67,3 +67,6 @@ audit-*.sh
 generated-report*.json
 .quaver-phase2-*.json
 .quaver-phase2-*.md
+
+# Native app bundle — built locally, not committed
+Quaver.app/
