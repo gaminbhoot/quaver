@@ -8,6 +8,7 @@ import Combine
 @MainActor
 protocol PlayerBarViewControllerDelegate: AnyObject {
     func playerBarDidRequestQueue(_ bar: PlayerBarViewController)
+    func playerBarDidRequestLyrics(_ bar: PlayerBarViewController)
 }
 
 @MainActor
@@ -190,6 +191,19 @@ final class PlayerBarViewController: NSViewController {
         return b
     }()
 
+    let lyricsButton: NSButton = {
+        let b = NSButton()
+        b.translatesAutoresizingMaskIntoConstraints = false
+        b.image = NSImage(systemSymbolName: "text.quote", accessibilityDescription: "Lyrics")
+        b.bezelStyle = .texturedRounded
+        b.isBordered = false
+        b.imagePosition = .imageOnly
+        b.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+        b.contentTintColor = .secondaryLabelColor
+        b.toolTip = "Lyrics"
+        return b
+    }()
+
     // MARK: Init
 
     init(engine: PlaybackEngine) {
@@ -235,6 +249,7 @@ final class PlayerBarViewController: NSViewController {
         view.addSubview(repeatButton)
         view.addSubview(volumeIcon)
         view.addSubview(volumeSlider)
+        view.addSubview(lyricsButton)
         view.addSubview(queueButton)
 
         NSLayoutConstraint.activate([
@@ -293,7 +308,12 @@ final class PlayerBarViewController: NSViewController {
             durationLabel.centerYAnchor.constraint(equalTo: progressSlider.centerYAnchor),
             durationLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 36),
 
-            // Right cluster
+            // Right cluster — lyrics sits left of shuffle
+            lyricsButton.trailingAnchor.constraint(equalTo: shuffleButton.leadingAnchor, constant: -8),
+            lyricsButton.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: 8),
+            lyricsButton.widthAnchor.constraint(equalToConstant: 28),
+            lyricsButton.heightAnchor.constraint(equalToConstant: 28),
+
             shuffleButton.trailingAnchor.constraint(equalTo: repeatButton.leadingAnchor, constant: -8),
             shuffleButton.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: 8),
             shuffleButton.widthAnchor.constraint(equalToConstant: 28),
@@ -339,6 +359,8 @@ final class PlayerBarViewController: NSViewController {
         repeatButton.action = #selector(repeatTapped)
         queueButton.target = self
         queueButton.action = #selector(queueTapped)
+        lyricsButton.target = self
+        lyricsButton.action = #selector(lyricsTapped)
         progressSlider.target = self
         progressSlider.action = #selector(progressChanged)
         volumeSlider.target = self
@@ -442,6 +464,7 @@ final class PlayerBarViewController: NSViewController {
         engine.setRepeatMode(next)
     }
     @objc private func queueTapped() { delegate?.playerBarDidRequestQueue(self) }
+    @objc private func lyricsTapped() { delegate?.playerBarDidRequestLyrics(self) }
     @objc private func progressChanged() { engine.seek(to: progressSlider.doubleValue) }
     @objc private func volumeChanged() { engine.setVolume(volumeSlider.doubleValue) }
 

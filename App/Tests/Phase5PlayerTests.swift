@@ -288,7 +288,7 @@ func testVolumeShuffleRepeatQueue() async {
     playerCheck(engine.state.repeatMode == .one, "repeat all→one")
     bar.repeatButton.performClick(nil)
     playerCheck(engine.state.repeatMode == .off, "repeat one→off")
-    class QCapture: PlayerBarViewControllerDelegate { var fired=false; func playerBarDidRequestQueue(_ bar: PlayerBarViewController) { fired=true } }
+    class QCapture: PlayerBarViewControllerDelegate { var fired=false; func playerBarDidRequestQueue(_ bar: PlayerBarViewController) { fired=true }; func playerBarDidRequestLyrics(_ bar: PlayerBarViewController) {} }
     let cap = QCapture()
     bar.delegate = cap
     bar.queueButton.performClick(nil)

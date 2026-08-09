@@ -5,8 +5,7 @@ import Combine
 // NSSplitViewController that owns sidebar + library and mediates LibraryStore ↔ UI.
 // Single LibraryStore, single `library: [TrackMetadata]` array — no second model.
 // Now also hosts the native PlayerBar (mini-player) at the bottom and owns the
-// single PlaybackEngine instance (no duplicated state, no independent clock).
-// No WKWebView / HTML. Pure AppKit Auto Layout. Sidebar + table + header + empty states.
+// single PlaybackEngine instance — plus the fullscreen Lyrics overlay (single clock).
 
 @MainActor
 final class RootSplitViewController: NSSplitViewController {
@@ -14,6 +13,7 @@ final class RootSplitViewController: NSSplitViewController {
     let store: LibraryStore
     let engine: NativePlaybackEngine
     let playerBar: PlayerBarViewController
+    let lyricsVC: LyricsViewController
 
     private(set) var library: [TrackMetadata] = []
     private(set) var selectedView: LibraryView = .all
@@ -31,6 +31,7 @@ final class RootSplitViewController: NSSplitViewController {
         let eng = engine ?? NativePlaybackEngine()
         self.engine = eng
         self.playerBar = PlayerBarViewController(engine: eng)
+        self.lyricsVC = LyricsViewController(engine: eng)
         if let s = store { self.store = s } else { self.store = LibraryStore() }
         super.init(nibName: nil, bundle: nil)
         self.playerBar.delegate = self
@@ -39,7 +40,7 @@ final class RootSplitViewController: NSSplitViewController {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
 
-    // MARK: - View hierarchy — container with splitView + playerBar
+    // MARK: - View hierarchy — container with splitView + playerBar + lyrics overlay
 
     override func loadView() {
         let container = NSView()
@@ -72,7 +73,6 @@ final class RootSplitViewController: NSSplitViewController {
         libraryVC.bind(store: store)
         sidebarVC.updatePlaylists(store.playlists)
 
-        // Observe store via synchronous didChangePublisher (no dispatch lag)
         store.didChangePublisher.sink { [weak self] _ in
             guard let self else { return }
             self.sidebarVC.updatePlaylists(self.store.playlists)
@@ -81,18 +81,18 @@ final class RootSplitViewController: NSSplitViewController {
         sidebarVC.selectView(.all)
         libraryVC.setView(.all)
 
-        // Embed playerBar below splitView via Auto Layout.
-        // Do NOT use addChild — NSSplitViewController overrides addChild(_:) to create a split item,
-        // which would make splitViewItems.count == 3 and break the 2-pane contract verified by Phase 4.
-        // The bar is held strongly by `self.playerBar` and its view is manually added to the container.
         let container = self.view
         let sv = self.splitView
         sv.translatesAutoresizingMaskIntoConstraints = false
-        // Force playerBar's view to load before adding (ensures viewDidLoad ran)
         let barView = playerBar.view
         barView.translatesAutoresizingMaskIntoConstraints = false
+        // Lyrics overlay — held strongly by self.lyricsVC, view manually added.
+        // Do NOT use addChild (would create a split item). Keep splitViewItems == 2.
+        let lyricsView = lyricsVC.view
+        lyricsView.translatesAutoresizingMaskIntoConstraints = false
         container.addSubview(sv)
         container.addSubview(barView)
+        container.addSubview(lyricsView)
 
         NSLayoutConstraint.activate([
             sv.topAnchor.constraint(equalTo: container.topAnchor),
@@ -104,7 +104,15 @@ final class RootSplitViewController: NSSplitViewController {
             barView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             barView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
             barView.heightAnchor.constraint(equalToConstant: 76),
+
+            lyricsView.topAnchor.constraint(equalTo: container.topAnchor),
+            lyricsView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            lyricsView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            lyricsView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
+        // Ensure lyrics is on top
+        lyricsView.wantsLayer = true
+        lyricsView.layer?.zPosition = 100
 
         loadSavedLibrary()
     }
@@ -127,6 +135,15 @@ final class RootSplitViewController: NSSplitViewController {
             await self.scanFolder(folder, persist: false)
         }
     }
+
+    // MARK: - Lyrics overlay API
+
+    func openLyrics() { lyricsVC.open() }
+    func closeLyrics() { lyricsVC.close() }
+    func toggleLyrics() {
+        if lyricsVC.isLyricsActive { lyricsVC.close() } else { lyricsVC.open() }
+    }
+    var isLyricsVisible: Bool { lyricsVC.isLyricsActive && !lyricsVC.view.isHidden }
 
     // MARK: - Public API for tests / external callers
 
@@ -214,11 +231,9 @@ extension RootSplitViewController: LibraryViewControllerDelegate {
         guard visible.indices.contains(index) else { return }
         let track = visible[index]
         store.recordPlayed(trackKey: track.key)
-        // Resolve to engine's library index by key (single source of truth)
         if let libIndex = library.firstIndex(where: { $0.key == track.key }) {
             engine.play(trackAt: libIndex)
         } else if !visible.isEmpty {
-            // Fallback: ensure engine has visible queue (filtered) and play there
             engine.setLibrary(visible)
             engine.play(trackAt: index)
         }
@@ -236,10 +251,9 @@ extension RootSplitViewController: LibraryViewControllerDelegate {
 
 extension RootSplitViewController: PlayerBarViewControllerDelegate {
     func playerBarDidRequestQueue(_ bar: PlayerBarViewController) {
-        // Queue access: for now, switch to showing the current queue.
-        // Full queue popover/list will be enhanced when full player lands.
-        // Minimal behavior: if we're not already on all, switch to all so queue is visible.
-        // Tests verify the delegate fires and the button exists.
         NSSound.beep()
+    }
+    func playerBarDidRequestLyrics(_ bar: PlayerBarViewController) {
+        toggleLyrics()
     }
 }
