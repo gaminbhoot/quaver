@@ -17,20 +17,22 @@ final class QuaverWindow: NSWindow {
         isReleasedWhenClosed = false
         hidesOnDeactivate = false
         level = .normal
-        // Ensure window appears on the active Space and is managed by Mission Control.
-        // This was missing — plain executable has no Info.plist, so collectionBehavior
-        // defaulted to 0 and the window could be ordered onto a non-visible Space
-        // (visible=true in System Events but no window on current desktop).
         collectionBehavior = [.managed, .canJoinAllSpaces]
-        backgroundColor = NSColor(named: "QuaverBackground") ?? NSColor(red: 0.11, green: 0.11, blue: 0.13, alpha: 1.0)
+        // Liquid Glass needs the window itself to be transparent where glass shows
+        // desktop blur. An opaque windowBackgroundColor behind a .behindWindow glass
+        // would defeat depth and make the sidebar read as a flat dark slab. Use
+        // clear + non-opaque and let each pane (sidebar glass vs library opaque)
+        // define its own background. Library's own view will still be opaque for
+        // list readability; sidebar's glass will show desktop through the clear,
+        // giving genuine depth instead of an opaque rectangle.
+        backgroundColor = .clear
+        isOpaque = false
         minSize = NSSize(width: 800, height: 500)
-        // Content view will be set by the root view controller in Phase 4+.
-        // For Phase 1: placeholder that proves no WebView exists.
+        // Placeholder that proves no WebView exists — also clear so glass shows through.
         let placeholder = NSView(frame: contentRect(forFrameRect: frame))
         placeholder.wantsLayer = true
-        placeholder.layer?.backgroundColor = NSColor(red: 0.11, green: 0.11, blue: 0.13, alpha: 1.0).cgColor
+        placeholder.layer?.backgroundColor = NSColor.clear.cgColor
         contentView = placeholder
-        // Verify: no WKWebView in the hierarchy.
         assert(!String(describing: type(of: contentView as Any)).contains("WKWebView"),
                "QuaverWindow must not contain WKWebView")
     }

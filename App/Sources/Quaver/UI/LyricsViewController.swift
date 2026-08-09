@@ -118,7 +118,9 @@ final class LyricsViewController: NSViewController {
     override func loadView() {
         let v = NSView()
         v.wantsLayer = true
-        v.layer?.backgroundColor = NSColor(red: 0.09, green: 0.09, blue: 0.11, alpha: 1.0).cgColor
+        // Clear so the artwork + glass show through with depth. Previous
+        // opaque 0.09 made the overlay a flat dark rectangle even with glass.
+        v.layer?.backgroundColor = NSColor.clear.cgColor
         self.view = v
         view.isHidden = true
     }
@@ -142,13 +144,14 @@ final class LyricsViewController: NSViewController {
         view.addSubview(glass)
         self.glassView = glass
         // When real glass/material is active, soften the solid dimming so the
-        // material shows through without a hard opaque edge. On reduced
-        // transparency the glass fallback is solid already, so hide dimming.
+        // material shows through with vibrancy and artwork depth remains
+        // visible — previous 0.45/0.35 were still too dark and the overlay
+        // read as an opaque dark rectangle hiding the Liquid Glass.
         if glass is NSVisualEffectView {
-            dimmingView.layer?.backgroundColor = NSColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 0.45).cgColor
+            dimmingView.layer?.backgroundColor = NSColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 0.28).cgColor
         } else if #available(macOS 26.0, *) {
             if glass is NSGlassEffectView {
-                dimmingView.layer?.backgroundColor = NSColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 0.35).cgColor
+                dimmingView.layer?.backgroundColor = NSColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 0.22).cgColor
             }
         }
         // If glass is the solid fallback (plain NSView), it already covers the

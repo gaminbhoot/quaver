@@ -219,7 +219,11 @@ final class PlayerBarViewController: NSViewController {
     override func loadView() {
         let v = NSView()
         v.wantsLayer = true
-        v.layer?.backgroundColor = NSColor(red: 0.13, green: 0.13, blue: 0.15, alpha: 1.0).cgColor
+        // System background — cleared to transparent when glass is active so the
+        // Liquid Glass material shows desktop/content blur with depth. Previous
+        // hardcoded 0.13 at 1.0 alpha plus 0.55 tint made the bar a flat opaque
+        // slab disconnected from the window.
+        v.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         self.view = v
     }
 
@@ -231,6 +235,12 @@ final class PlayerBarViewController: NSViewController {
         bindEngine()
         render(engine.state)
         view.setAccessibilityLabel("Player")
+        // When genuine glass is active, the material's own highlight is the edge
+        // — the hard 1px separator would read as an extra opaque slab boundary.
+        // Soften it so the bar blends into the library content.
+        if view.layer?.backgroundColor == NSColor.clear.cgColor {
+            topSeparator.alphaValue = 0.35
+        }
     }
 
     private func installGlassBackground() {

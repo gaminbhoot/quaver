@@ -3,6 +3,9 @@ import AppKit
 // MARK: - Quaver Glass — native AppKit materials (NSVisualEffectView / NSGlassEffectView)
 // Visual-only phase. No layout redesign, no state change, no timers, no polling.
 // Minimum number of surfaces. Respects reduced transparency and appearance.
+// Tahoe (macOS 26) uses genuine NSGlassEffectView with subtle tints and proper
+// container grouping so sidebar → library and PlayerBar → content transitions are
+// seamless, not hard opaque rectangles.
 
 @MainActor
 enum QuaverGlass {
@@ -18,29 +21,43 @@ enum QuaverGlass {
             return solidFallback(for: surface)
         }
         if #available(macOS 26.0, *) {
-            // Use genuine Liquid Glass where the SDK provides it.
             return glassEffectView(for: surface)
         } else {
             return visualEffectView(for: surface)
         }
     }
 
-    /// Convenience for callers that need NSVisualEffectView specifically
-    /// (e.g., to adjust alpha or blending without casting).
+    /// Container that groups Liquid Glass surfaces for correct depth + batching.
+    /// On Tahoe, ancestor NSGlassEffectContainerView merges descendant glass views
+    /// when they are similar and within `spacing`. Use at the window/root level
+    /// so sidebar, header, playerBar share a single glass context. On older OS,
+    /// returns a plain transparent container.
+    static func containerView(spacing: CGFloat = 12) -> NSView {
+        if #available(macOS 26.0, *) {
+            let c = NSGlassEffectContainerView()
+            c.spacing = spacing
+            c.wantsLayer = true
+            c.layer?.backgroundColor = NSColor.clear.cgColor
+            return c
+        } else {
+            let v = NSView()
+            v.wantsLayer = true
+            v.layer?.backgroundColor = NSColor.clear.cgColor
+            return v
+        }
+    }
+
+    /// Convenience for callers that need NSVisualEffectView specifically.
     static func visualEffectView(for surface: Surface) -> NSVisualEffectView {
         let v = NSVisualEffectView()
         v.translatesAutoresizingMaskIntoConstraints = false
         v.state = .active
-        // Blending: sidebar/player show desktop behind window (native sidebar/hud style);
-        // lyrics/header show content within window (artwork/header background).
         switch surface {
         case .sidebar, .playerBar: v.blendingMode = .behindWindow
         case .header, .lyrics: v.blendingMode = .withinWindow
         }
         v.isEmphasized = true
         v.wantsLayer = true
-        // No hard opaque boundary where translucent should exist — keep corners 0
-        // for edge-to-edge surfaces, rely on window's own rounding.
         switch surface {
         case .sidebar:
             if #available(macOS 10.14, *) {
@@ -50,15 +67,11 @@ enum QuaverGlass {
             }
         case .playerBar:
             v.material = .hudWindow
-            // Keep bar visually distinct but translucent; hudWindow is designed for
-            // overlay bars and remains interactive.
         case .header:
             v.material = .headerView
         case .lyrics:
             v.material = .hudWindow
-            // Lyrics dimming is layered over artwork; keep slight translucency
-            // without making entire overlay transparent.
-            v.alphaValue = 0.92
+            v.alphaValue = 0.88
         }
         return v
     }
@@ -67,26 +80,35 @@ enum QuaverGlass {
     private static func glassEffectView(for surface: Surface) -> NSView {
         let g = NSGlassEffectView()
         g.translatesAutoresizingMaskIntoConstraints = false
-        // Style: regular for bars/sidebar, clear for immersive lyrics so artwork shows through.
+        // Style: .clear is more translucent (vibrant, shows desktop/content behind
+        // with depth); .regular is slightly more opaque for bars that need readability.
         switch surface {
-        case .lyrics: g.style = .clear
-        case .sidebar, .playerBar, .header: g.style = .regular
+        case .sidebar, .lyrics: g.style = .clear
+        case .playerBar, .header: g.style = .regular
         }
-        // Corner radius 0 preserves seamless edge-to-edge transition; window owns corners.
+        // CornerRadius 0 keeps edge-to-edge surfaces seamless; the window's own
+        // rounded corners clip. Floating surfaces (if any) would use non-zero.
         g.cornerRadius = 0
-        // Subtle tints keep Quaver's dark aesthetic while letting vibrancy show.
+        // Subtle tints — enough to preserve Quaver's dark aesthetic but light enough
+        // that vibrancy/depth shows through. Previous tints (0.35–0.55) were so dark
+        // the glass read as an opaque slab; these are 60–70% lighter.
         switch surface {
         case .sidebar:
-            g.tintColor = NSColor.windowBackgroundColor.withAlphaComponent(0.35)
+            // Very subtle — sidebar should show desktop blur with depth, not a dark rectangle.
+            g.tintColor = NSColor.windowBackgroundColor.withAlphaComponent(0.10)
         case .playerBar:
-            g.tintColor = NSColor(red: 0.13, green: 0.13, blue: 0.15, alpha: 0.55)
+            // Bottom bar needs a touch more opacity for control legibility, but still
+            // translucent so it blends into library content rather than floating as a slab.
+            g.tintColor = NSColor.windowBackgroundColor.withAlphaComponent(0.16)
         case .header:
-            g.tintColor = NSColor.windowBackgroundColor.withAlphaComponent(0.3)
+            // Header floats over scroll content; subtle so list shows through with blur.
+            g.tintColor = NSColor.windowBackgroundColor.withAlphaComponent(0.09)
         case .lyrics:
-            g.tintColor = NSColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 0.35)
+            // Immersive lyrics over artwork — artwork must remain visible through glass.
+            g.tintColor = NSColor.black.withAlphaComponent(0.18)
         }
-        // Glass needs a contentView to render correctly per header docs; an empty
-        // view is sufficient when we use the glass as a background sibling.
+        // Glass needs a contentView per header docs; an empty clear view is sufficient
+        // when we use the glass as a background sibling (controls stay interactive above).
         let placeholder = NSView()
         placeholder.translatesAutoresizingMaskIntoConstraints = false
         placeholder.wantsLayer = true
@@ -103,11 +125,11 @@ enum QuaverGlass {
         case .sidebar:
             v.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         case .playerBar:
-            v.layer?.backgroundColor = NSColor(red: 0.13, green: 0.13, blue: 0.15, alpha: 1.0).cgColor
+            v.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         case .header:
             v.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         case .lyrics:
-            v.layer?.backgroundColor = NSColor(red: 0.08, green: 0.08, blue: 0.10, alpha: 0.85).cgColor
+            v.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.85).cgColor
         }
         return v
     }
