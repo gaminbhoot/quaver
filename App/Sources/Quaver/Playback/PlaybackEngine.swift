@@ -33,6 +33,8 @@ protocol PlaybackEngine: AnyObject {
     func previous()
     func seek(to time: Double)
     func setVolume(_ volume: Double)
+    func setShuffle(_ enabled: Bool)
+    func setRepeatMode(_ mode: RepeatMode)
 }
 
 /// Stub that compiles and lets Phase 4+ UI build against the protocol before AVPlayer exists.
@@ -49,4 +51,6 @@ final class StubPlaybackEngine: PlaybackEngine {
     func previous() {}
     func seek(to time: Double) {}
     func setVolume(_ volume: Double) {}
+    func setShuffle(_ enabled: Bool) { var s = subject.value; s.isShuffle = enabled; subject.send(s) }
+    func setRepeatMode(_ mode: RepeatMode) { var s = subject.value; s.repeatMode = mode; subject.send(s) }
 }

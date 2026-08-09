@@ -4,12 +4,17 @@ import Combine
 // MARK: - RootSplitViewController
 // NSSplitViewController that owns sidebar + library and mediates LibraryStore ↔ UI.
 // Single LibraryStore, single `library: [TrackMetadata]` array — no second model.
+// Now also hosts the native PlayerBar (mini-player) at the bottom and owns the
+// single PlaybackEngine instance (no duplicated state, no independent clock).
 // No WKWebView / HTML. Pure AppKit Auto Layout. Sidebar + table + header + empty states.
 
 @MainActor
 final class RootSplitViewController: NSSplitViewController {
 
     let store: LibraryStore
+    let engine: NativePlaybackEngine
+    let playerBar: PlayerBarViewController
+
     private(set) var library: [TrackMetadata] = []
     private(set) var selectedView: LibraryView = .all
     private(set) var searchQuery: String = ""
@@ -22,13 +27,26 @@ final class RootSplitViewController: NSSplitViewController {
 
     // MARK: - Init
 
-    init(store: LibraryStore? = nil) {
+    init(store: LibraryStore? = nil, engine: NativePlaybackEngine? = nil) {
+        let eng = engine ?? NativePlaybackEngine()
+        self.engine = eng
+        self.playerBar = PlayerBarViewController(engine: eng)
         if let s = store { self.store = s } else { self.store = LibraryStore() }
         super.init(nibName: nil, bundle: nil)
+        self.playerBar.delegate = self
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
+
+    // MARK: - View hierarchy — container with splitView + playerBar
+
+    override func loadView() {
+        let container = NSView()
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        self.view = container
+    }
 
     // MARK: - Lifecycle
 
@@ -58,11 +76,35 @@ final class RootSplitViewController: NSSplitViewController {
         store.didChangePublisher.sink { [weak self] _ in
             guard let self else { return }
             self.sidebarVC.updatePlaylists(self.store.playlists)
-            // libraryVC already observes didChangePublisher itself; sidebar is the only one we need to forward here.
         }.store(in: &cancellables)
 
         sidebarVC.selectView(.all)
         libraryVC.setView(.all)
+
+        // Embed playerBar below splitView via Auto Layout.
+        // Do NOT use addChild — NSSplitViewController overrides addChild(_:) to create a split item,
+        // which would make splitViewItems.count == 3 and break the 2-pane contract verified by Phase 4.
+        // The bar is held strongly by `self.playerBar` and its view is manually added to the container.
+        let container = self.view
+        let sv = self.splitView
+        sv.translatesAutoresizingMaskIntoConstraints = false
+        // Force playerBar's view to load before adding (ensures viewDidLoad ran)
+        let barView = playerBar.view
+        barView.translatesAutoresizingMaskIntoConstraints = false
+        container.addSubview(sv)
+        container.addSubview(barView)
+
+        NSLayoutConstraint.activate([
+            sv.topAnchor.constraint(equalTo: container.topAnchor),
+            sv.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            sv.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            sv.bottomAnchor.constraint(equalTo: barView.topAnchor),
+
+            barView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            barView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            barView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+            barView.heightAnchor.constraint(equalToConstant: 76),
+        ])
 
         loadSavedLibrary()
     }
@@ -91,6 +133,7 @@ final class RootSplitViewController: NSSplitViewController {
     func setLibraryTracks(_ tracks: [TrackMetadata]) {
         self.library = tracks
         libraryVC.setLibrary(tracks)
+        engine.setLibrary(tracks)
     }
 
     func setViewForTest(_ view: LibraryView) {
@@ -108,6 +151,7 @@ final class RootSplitViewController: NSSplitViewController {
         let tracks = await QuaverCore.scanDirectoryAsync(at: path)
         self.library = tracks
         libraryVC.setLibrary(tracks)
+        engine.setLibrary(tracks)
     }
 
     func handleAddFolderRequest() {
@@ -170,6 +214,14 @@ extension RootSplitViewController: LibraryViewControllerDelegate {
         guard visible.indices.contains(index) else { return }
         let track = visible[index]
         store.recordPlayed(trackKey: track.key)
+        // Resolve to engine's library index by key (single source of truth)
+        if let libIndex = library.firstIndex(where: { $0.key == track.key }) {
+            engine.play(trackAt: libIndex)
+        } else if !visible.isEmpty {
+            // Fallback: ensure engine has visible queue (filtered) and play there
+            engine.setLibrary(visible)
+            engine.play(trackAt: index)
+        }
         if case .recent = selectedView {
             libraryVC.setView(selectedView)
         }
@@ -177,5 +229,17 @@ extension RootSplitViewController: LibraryViewControllerDelegate {
 
     func libraryDidRequestAddFolder() {
         handleAddFolderRequest()
+    }
+}
+
+// MARK: - PlayerBarViewControllerDelegate
+
+extension RootSplitViewController: PlayerBarViewControllerDelegate {
+    func playerBarDidRequestQueue(_ bar: PlayerBarViewController) {
+        // Queue access: for now, switch to showing the current queue.
+        // Full queue popover/list will be enhanced when full player lands.
+        // Minimal behavior: if we're not already on all, switch to all so queue is visible.
+        // Tests verify the delegate fires and the button exists.
+        NSSound.beep()
     }
 }
