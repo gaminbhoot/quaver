@@ -34,3 +34,36 @@ Quaver_Antigravity_Foolproof_MacOS_Native_Execution_Spec.md
 Quaver_macOS_Native_Full_Execution_Spec.md
 
 Quaver_Performance_Baseline_Spec.md
+# Native migration — generated / investigation artifacts (Phase 2+)
+# Keep real source (App/Sources, quaver-core/src, docs/PHASE1_AUDIT.md) tracked.
+# Ignore only planning/audit/migration drafts and temp investigation output.
+docs/PHASE2_*.md
+docs/PHASE3_*.md
+docs/PHASE4_*.md
+docs/PHASE5_*.md
+docs/PHASE6_*.md
+docs/PHASE7_*.md
+docs/PHASE8_*.md
+docs/PHASE9_*.md
+docs/PHASE10_*.md
+docs/PHASE11_*.md
+docs/PHASE12_*.md
+docs/audit-*.md
+docs/migration-*.md
+docs/generated-report*.md
+docs/generated-report*.json
+quaver-core/target/
+quaver-core/Cargo.lock
+App/.build/
+App/.swiftpm/
+*.generated.swift
+/tmp-quaver-*/
+probe-*.swift
+*_spike.swift
+audit-*.sh
+/tmp/audit_*.sh
+/tmp/quaver_*.swift
+/tmp/quaver_*
+generated-report*.json
+.quaver-phase2-*.json
+.quaver-phase2-*.md

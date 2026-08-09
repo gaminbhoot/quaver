@@ -1,0 +1,20 @@
+[package]
+name = "quaver-core"
+version = "0.1.0"
+edition = "2021"
+description = "Quaver native core — scanning, metadata, filesystem. No Tauri, no WebView."
+authors = ["gaminbhoot"]
+
+[lib]
+name = "quaver_core"
+crate-type = ["staticlib", "rlib"]
+path = "src/lib.rs"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+lofty = "0.21"
+base64 = "0.22"
+walkdir = "2"
+symphonia = { version = "0.5", default-features = true }
+hound = "3.5"
