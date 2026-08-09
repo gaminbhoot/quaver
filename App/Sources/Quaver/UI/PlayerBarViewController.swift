@@ -2,10 +2,10 @@ import AppKit
 import Combine
 
 // MARK: - PlayerBarViewController
-// Native mini-player bottom bar. Apple Music-like: integrated dark subtle
-// refined surface — not a floating transparent sheet. 76pt height, artwork +
-// centered transport + right cluster, artwork is important but not competing.
-// No desktop wallpaper bleed, no excessive blur, no giant glass rectangle.
+// Floating capsule/pill mini-player — Apple Music-inspired, detached, sleek.
+// Sits above the library with breathing room, independently rounded/shadowed,
+// subtle Liquid Glass. Artwork+labels left, transport center, secondary right,
+// progress cleanly represented without turning the pill into a rectangular bar.
 
 @MainActor
 protocol PlayerBarViewControllerDelegate: AnyObject {
@@ -23,15 +23,13 @@ final class PlayerBarViewController: NSViewController {
     private let engine: PlaybackEngine
     private var cancellables = Set<AnyCancellable>()
 
-    // MARK: UI — subtle material hairline (not a strong slab boundary)
-
+    // MARK: UI — pill has no top hairline; it is an independent capsule.
     private let topSeparator: NSBox = {
         let b = NSBox()
         b.translatesAutoresizingMaskIntoConstraints = false
         b.boxType = .separator
-        // Apple Music refined hairline — visible enough to give the player
-        // hierarchy, faint enough not to read as a card edge.
-        b.alphaValue = 0.12
+        b.alphaValue = 0
+        b.isHidden = true
         return b
     }()
 
@@ -42,7 +40,7 @@ final class PlayerBarViewController: NSViewController {
         v.translatesAutoresizingMaskIntoConstraints = false
         v.imageScaling = .scaleProportionallyUpOrDown
         v.wantsLayer = true
-        v.layer?.cornerRadius = 4
+        v.layer?.cornerRadius = 6
         v.layer?.masksToBounds = true
         v.image = NSImage(systemSymbolName: "music.note", accessibilityDescription: nil)
         v.contentTintColor = .secondaryLabelColor
@@ -52,7 +50,7 @@ final class PlayerBarViewController: NSViewController {
     private let titleLabel: NSTextField = {
         let l = NSTextField(labelWithString: "No track")
         l.translatesAutoresizingMaskIntoConstraints = false
-        l.font = .systemFont(ofSize: 13, weight: .semibold)
+        l.font = .systemFont(ofSize: 12, weight: .semibold)
         l.lineBreakMode = .byTruncatingTail
         l.maximumNumberOfLines = 1
         return l
@@ -77,7 +75,7 @@ final class PlayerBarViewController: NSViewController {
         b.bezelStyle = .texturedRounded
         b.isBordered = false
         b.imagePosition = .imageOnly
-        b.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
+        b.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
         b.contentTintColor = .labelColor
         b.toolTip = "Previous"
         return b
@@ -91,7 +89,7 @@ final class PlayerBarViewController: NSViewController {
         b.isBordered = true
         b.bezelStyle = .circular
         b.imagePosition = .imageOnly
-        b.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 18, weight: .medium)
+        b.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 16, weight: .medium)
         b.contentTintColor = .labelColor
         b.toolTip = "Play"
         return b
@@ -104,7 +102,7 @@ final class PlayerBarViewController: NSViewController {
         b.bezelStyle = .texturedRounded
         b.isBordered = false
         b.imagePosition = .imageOnly
-        b.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 14, weight: .regular)
+        b.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
         b.contentTintColor = .labelColor
         b.toolTip = "Next"
         return b
@@ -113,7 +111,7 @@ final class PlayerBarViewController: NSViewController {
     let elapsedLabel: NSTextField = {
         let l = NSTextField(labelWithString: "0:00")
         l.translatesAutoresizingMaskIntoConstraints = false
-        l.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        l.font = .monospacedDigitSystemFont(ofSize: 10, weight: .regular)
         l.textColor = .secondaryLabelColor
         l.alignment = .right
         l.setContentHuggingPriority(.required, for: .horizontal)
@@ -123,7 +121,7 @@ final class PlayerBarViewController: NSViewController {
     let durationLabel: NSTextField = {
         let l = NSTextField(labelWithString: "—:—")
         l.translatesAutoresizingMaskIntoConstraints = false
-        l.font = .monospacedDigitSystemFont(ofSize: 11, weight: .regular)
+        l.font = .monospacedDigitSystemFont(ofSize: 10, weight: .regular)
         l.textColor = .secondaryLabelColor
         l.alignment = .left
         l.setContentHuggingPriority(.required, for: .horizontal)
@@ -147,7 +145,7 @@ final class PlayerBarViewController: NSViewController {
         b.bezelStyle = .texturedRounded
         b.isBordered = false
         b.imagePosition = .imageOnly
-        b.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+        b.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 12, weight: .regular)
         b.contentTintColor = .secondaryLabelColor
         b.toolTip = "Shuffle"
         return b
@@ -160,7 +158,7 @@ final class PlayerBarViewController: NSViewController {
         b.bezelStyle = .texturedRounded
         b.isBordered = false
         b.imagePosition = .imageOnly
-        b.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+        b.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 12, weight: .regular)
         b.contentTintColor = .secondaryLabelColor
         b.toolTip = "Repeat"
         return b
@@ -190,7 +188,7 @@ final class PlayerBarViewController: NSViewController {
         b.bezelStyle = .texturedRounded
         b.isBordered = false
         b.imagePosition = .imageOnly
-        b.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+        b.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 12, weight: .regular)
         b.contentTintColor = .secondaryLabelColor
         b.toolTip = "Queue"
         return b
@@ -203,7 +201,7 @@ final class PlayerBarViewController: NSViewController {
         b.bezelStyle = .texturedRounded
         b.isBordered = false
         b.imagePosition = .imageOnly
-        b.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+        b.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 12, weight: .regular)
         b.contentTintColor = .secondaryLabelColor
         b.toolTip = "Lyrics"
         return b
@@ -219,23 +217,23 @@ final class PlayerBarViewController: NSViewController {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
 
-    // MARK: Lifecycle
+    // MARK: Lifecycle — floating capsule over coherent dark library
 
     override func loadView() {
         let v = NSView()
         v.wantsLayer = true
-        // Apple Music: coherent dark application surface. Player belongs to the
-        // window — same windowBackgroundColor as the rest, with only a faint
-        // hairline above it for hierarchy. Previous glass approach (hudWindow at
-        // 0.16 + clear host + .behindWindow) made the bar a transparent window
-        // over the desktop; solid keeps it integrated and lets artwork/titles
-        // have priority rather than the blur.
-        v.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        // Pill is an independent floating capsule — its background is native
+        // Liquid Glass (withinWindow) over the coherent dark library, not a
+        // full-width bar. Host is clear so the capsule glass shows with depth.
+        v.layer?.backgroundColor = NSColor.clear.cgColor
+        v.layer?.cornerRadius = 34
+        v.layer?.masksToBounds = false
         self.view = v
     }
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        installPillGlass()
         setupLayout()
         setupActions()
         bindEngine()
@@ -243,7 +241,24 @@ final class PlayerBarViewController: NSViewController {
         view.setAccessibilityLabel("Player")
     }
 
-    // MARK: Layout
+    private func installPillGlass() {
+        let glass = QuaverGlass.backgroundView(for: .playerBar)
+        glass.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(glass, positioned: .below, relativeTo: nil)
+        NSLayoutConstraint.activate([
+            glass.topAnchor.constraint(equalTo: view.topAnchor),
+            glass.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            glass.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            glass.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
+        // Host already clear with 34 radius; shadow is set by RootSplit (pill container)
+        // but also ensure glass respects capsule.
+        glass.wantsLayer = true
+        glass.layer?.cornerRadius = 34
+        glass.layer?.masksToBounds = true
+    }
+
+    // MARK: Layout — compact pill: single row + subtle progress below transport
 
     private func setupLayout() {
         view.addSubview(topSeparator)
@@ -263,98 +278,112 @@ final class PlayerBarViewController: NSViewController {
         view.addSubview(lyricsButton)
         view.addSubview(queueButton)
 
-        NSLayoutConstraint.activate([
-            // Overall height
-            view.heightAnchor.constraint(greaterThanOrEqualToConstant: 72),
+        // Flexible widths for responsiveness — progress and volume can compress when pill narrows.
+        let progressWidth = progressSlider.widthAnchor.constraint(equalToConstant: 180)
+        progressWidth.priority = .defaultHigh
+        let volumeWidth = volumeSlider.widthAnchor.constraint(equalToConstant: 64)
+        volumeWidth.priority = .defaultHigh
 
-            // Separator
+        NSLayoutConstraint.activate([
+            // Pill overall — height 68 capsule
+            view.heightAnchor.constraint(equalToConstant: 68),
+
+            // Hidden separator (pill has no full-width bar edge)
             topSeparator.topAnchor.constraint(equalTo: view.topAnchor),
             topSeparator.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             topSeparator.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             topSeparator.heightAnchor.constraint(equalToConstant: 1),
 
-            // Left: artwork
-            artworkView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 12),
-            artworkView.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: 2),
-            artworkView.widthAnchor.constraint(equalToConstant: 44),
-            artworkView.heightAnchor.constraint(equalToConstant: 44),
+            // Left: artwork 36 for compact pill
+            artworkView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 14),
+            artworkView.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -6),
+            artworkView.widthAnchor.constraint(equalToConstant: 36),
+            artworkView.heightAnchor.constraint(equalToConstant: 36),
 
-            // Labels to the right of artwork
-            titleLabel.leadingAnchor.constraint(equalTo: artworkView.trailingAnchor, constant: 10),
-            titleLabel.topAnchor.constraint(equalTo: artworkView.topAnchor, constant: 2),
-            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: previousButton.leadingAnchor, constant: -16),
-            titleLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 220),
+            // Labels to the right of artwork, stacked
+            titleLabel.leadingAnchor.constraint(equalTo: artworkView.trailingAnchor, constant: 8),
+            titleLabel.topAnchor.constraint(equalTo: artworkView.topAnchor, constant: -1),
+            titleLabel.trailingAnchor.constraint(lessThanOrEqualTo: previousButton.leadingAnchor, constant: -12),
+            titleLabel.widthAnchor.constraint(lessThanOrEqualToConstant: 148),
 
             artistLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
-            artistLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 2),
+            artistLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 1),
             artistLabel.trailingAnchor.constraint(equalTo: titleLabel.trailingAnchor),
 
-            // Center transport: horizontally centered as a group
+            // Center transport — slightly above center to leave room for progress below
             playPauseButton.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            playPauseButton.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: 10),
-            playPauseButton.widthAnchor.constraint(equalToConstant: 36),
-            playPauseButton.heightAnchor.constraint(equalToConstant: 36),
+            playPauseButton.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -8),
+            playPauseButton.widthAnchor.constraint(equalToConstant: 34),
+            playPauseButton.heightAnchor.constraint(equalToConstant: 34),
 
-            previousButton.trailingAnchor.constraint(equalTo: playPauseButton.leadingAnchor, constant: -12),
+            previousButton.trailingAnchor.constraint(equalTo: playPauseButton.leadingAnchor, constant: -8),
             previousButton.centerYAnchor.constraint(equalTo: playPauseButton.centerYAnchor),
-            previousButton.widthAnchor.constraint(equalToConstant: 28),
-            previousButton.heightAnchor.constraint(equalToConstant: 28),
+            previousButton.widthAnchor.constraint(equalToConstant: 26),
+            previousButton.heightAnchor.constraint(equalToConstant: 26),
 
-            nextButton.leadingAnchor.constraint(equalTo: playPauseButton.trailingAnchor, constant: 12),
+            nextButton.leadingAnchor.constraint(equalTo: playPauseButton.trailingAnchor, constant: 8),
             nextButton.centerYAnchor.constraint(equalTo: playPauseButton.centerYAnchor),
-            nextButton.widthAnchor.constraint(equalToConstant: 28),
-            nextButton.heightAnchor.constraint(equalToConstant: 28),
+            nextButton.widthAnchor.constraint(equalToConstant: 26),
+            nextButton.heightAnchor.constraint(equalToConstant: 26),
 
-            // Progress row below transport, centered
-            elapsedLabel.trailingAnchor.constraint(equalTo: progressSlider.leadingAnchor, constant: -8),
-            elapsedLabel.centerYAnchor.constraint(equalTo: progressSlider.centerYAnchor),
-            elapsedLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 36),
-
+            // Progress — compact, centered below transport, flexible width (180 ideal, 100–200 bounds).
             progressSlider.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            progressSlider.topAnchor.constraint(equalTo: playPauseButton.bottomAnchor, constant: 8),
-            progressSlider.widthAnchor.constraint(equalToConstant: 340),
-            progressSlider.heightAnchor.constraint(equalToConstant: 16),
+            progressSlider.topAnchor.constraint(equalTo: playPauseButton.bottomAnchor, constant: 6),
+            progressSlider.heightAnchor.constraint(equalToConstant: 10),
+            progressWidth,
+            progressSlider.widthAnchor.constraint(greaterThanOrEqualToConstant: 100),
+            progressSlider.widthAnchor.constraint(lessThanOrEqualToConstant: 200),
 
-            durationLabel.leadingAnchor.constraint(equalTo: progressSlider.trailingAnchor, constant: 8),
+            elapsedLabel.trailingAnchor.constraint(equalTo: progressSlider.leadingAnchor, constant: -6),
+            elapsedLabel.centerYAnchor.constraint(equalTo: progressSlider.centerYAnchor),
+            elapsedLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 32),
+
+            durationLabel.leadingAnchor.constraint(equalTo: progressSlider.trailingAnchor, constant: 6),
             durationLabel.centerYAnchor.constraint(equalTo: progressSlider.centerYAnchor),
-            durationLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 36),
+            durationLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 32),
 
-            // Right cluster — lyrics sits left of shuffle
-            lyricsButton.trailingAnchor.constraint(equalTo: shuffleButton.leadingAnchor, constant: -8),
-            lyricsButton.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: 8),
-            lyricsButton.widthAnchor.constraint(equalToConstant: 28),
-            lyricsButton.heightAnchor.constraint(equalToConstant: 28),
+            // Right cluster — compact, sits in pill's right half
+            lyricsButton.trailingAnchor.constraint(equalTo: shuffleButton.leadingAnchor, constant: -6),
+            lyricsButton.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -6),
+            lyricsButton.widthAnchor.constraint(equalToConstant: 26),
+            lyricsButton.heightAnchor.constraint(equalToConstant: 26),
 
-            shuffleButton.trailingAnchor.constraint(equalTo: repeatButton.leadingAnchor, constant: -8),
-            shuffleButton.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: 8),
-            shuffleButton.widthAnchor.constraint(equalToConstant: 28),
-            shuffleButton.heightAnchor.constraint(equalToConstant: 28),
+            shuffleButton.trailingAnchor.constraint(equalTo: repeatButton.leadingAnchor, constant: -6),
+            shuffleButton.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -6),
+            shuffleButton.widthAnchor.constraint(equalToConstant: 26),
+            shuffleButton.heightAnchor.constraint(equalToConstant: 26),
 
-            repeatButton.trailingAnchor.constraint(equalTo: volumeIcon.leadingAnchor, constant: -16),
-            repeatButton.centerYAnchor.constraint(equalTo: shuffleButton.centerYAnchor),
-            repeatButton.widthAnchor.constraint(equalToConstant: 28),
-            repeatButton.heightAnchor.constraint(equalToConstant: 28),
+            repeatButton.trailingAnchor.constraint(equalTo: volumeIcon.leadingAnchor, constant: -10),
+            repeatButton.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -6),
+            repeatButton.widthAnchor.constraint(equalToConstant: 26),
+            repeatButton.heightAnchor.constraint(equalToConstant: 26),
 
-            volumeIcon.centerYAnchor.constraint(equalTo: shuffleButton.centerYAnchor),
+            volumeIcon.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -6),
             volumeIcon.widthAnchor.constraint(equalToConstant: 16),
             volumeIcon.heightAnchor.constraint(equalToConstant: 16),
 
-            volumeSlider.leadingAnchor.constraint(equalTo: volumeIcon.trailingAnchor, constant: 6),
-            volumeSlider.centerYAnchor.constraint(equalTo: shuffleButton.centerYAnchor),
-            volumeSlider.widthAnchor.constraint(equalToConstant: 90),
+            volumeSlider.leadingAnchor.constraint(equalTo: volumeIcon.trailingAnchor, constant: 4),
+            volumeSlider.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -6),
+            volumeWidth,
+            volumeSlider.widthAnchor.constraint(greaterThanOrEqualToConstant: 40),
+            volumeSlider.widthAnchor.constraint(lessThanOrEqualToConstant: 80),
 
-            queueButton.leadingAnchor.constraint(equalTo: volumeSlider.trailingAnchor, constant: 12),
-            queueButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -12),
-            queueButton.centerYAnchor.constraint(equalTo: shuffleButton.centerYAnchor),
-            queueButton.widthAnchor.constraint(equalToConstant: 28),
-            queueButton.heightAnchor.constraint(equalToConstant: 28),
+            queueButton.leadingAnchor.constraint(equalTo: volumeSlider.trailingAnchor, constant: 8),
+            queueButton.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -14),
+            queueButton.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -6),
+            queueButton.widthAnchor.constraint(equalToConstant: 26),
+            queueButton.heightAnchor.constraint(equalToConstant: 26),
         ])
 
-        // Compression priorities so center stays and sides compress first
+        // Compression so pill gracefully compresses at small widths
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         artistLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         progressSlider.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        progressSlider.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
+        progressSlider.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        volumeSlider.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        volumeSlider.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        view.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        view.setContentHuggingPriority(.defaultLow, for: .horizontal)
     }
 
     private func setupActions() {

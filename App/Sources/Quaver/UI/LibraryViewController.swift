@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import QuartzCore
 
 // MARK: - LibraryViewController
 // Native library content area: NSTableView + header + empty states.
@@ -158,6 +159,9 @@ final class LibraryViewController: NSViewController {
         view.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
     }
 
+    private let headerBlurView: NSView = QuaverGlass.backgroundView(for: .header)
+    private var headerGradientMask: CAGradientLayer?
+
     override func viewDidLoad() {
         super.viewDidLoad()
         setupHeader()
@@ -166,27 +170,43 @@ final class LibraryViewController: NSViewController {
     }
 
     private func setupHeader() {
+        // Header with transitional blur — material that fades softly into scrolled content.
+        // ScrollView underlaps header so content scrolls underneath and blurs progressively.
+        headerView.wantsLayer = true
+        headerView.layer?.backgroundColor = NSColor.clear.cgColor
         view.addSubview(headerView)
+
+        // Native glass behind header controls — not a painted gradient.
+        headerBlurView.translatesAutoresizingMaskIntoConstraints = false
+        headerBlurView.wantsLayer = true
+        headerView.addSubview(headerBlurView, positioned: .below, relativeTo: nil)
+        NSLayoutConstraint.activate([
+            headerBlurView.topAnchor.constraint(equalTo: headerView.topAnchor),
+            headerBlurView.leadingAnchor.constraint(equalTo: headerView.leadingAnchor),
+            headerBlurView.trailingAnchor.constraint(equalTo: headerView.trailingAnchor),
+            headerBlurView.bottomAnchor.constraint(equalTo: headerView.bottomAnchor),
+        ])
+
         headerView.addSubview(eyebrowLabel)
         headerView.addSubview(titleLabel)
         headerView.addSubview(filterPopup)
         headerView.addSubview(sortPopup)
 
         NSLayoutConstraint.activate([
-            headerView.topAnchor.constraint(equalTo: view.topAnchor, constant: 16),
-            headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 16),
-            headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -16),
-            headerView.heightAnchor.constraint(equalToConstant: 56),
+            headerView.topAnchor.constraint(equalTo: view.topAnchor, constant: 0),
+            headerView.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 0),
+            headerView.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: 0),
+            headerView.heightAnchor.constraint(equalToConstant: 72),
 
-            eyebrowLabel.topAnchor.constraint(equalTo: headerView.topAnchor),
-            eyebrowLabel.leadingAnchor.constraint(equalTo: headerView.leadingAnchor),
+            eyebrowLabel.topAnchor.constraint(equalTo: headerView.topAnchor, constant: 16),
+            eyebrowLabel.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 16),
 
             titleLabel.topAnchor.constraint(equalTo: eyebrowLabel.bottomAnchor, constant: 2),
-            titleLabel.leadingAnchor.constraint(equalTo: headerView.leadingAnchor),
-            titleLabel.bottomAnchor.constraint(lessThanOrEqualTo: headerView.bottomAnchor),
+            titleLabel.leadingAnchor.constraint(equalTo: headerView.leadingAnchor, constant: 16),
+            titleLabel.bottomAnchor.constraint(lessThanOrEqualTo: headerView.bottomAnchor, constant: -8),
 
             sortPopup.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
-            sortPopup.trailingAnchor.constraint(equalTo: headerView.trailingAnchor),
+            sortPopup.trailingAnchor.constraint(equalTo: headerView.trailingAnchor, constant: -16),
             sortPopup.widthAnchor.constraint(equalToConstant: 130),
 
             filterPopup.centerYAnchor.constraint(equalTo: headerView.centerYAnchor),
@@ -199,13 +219,35 @@ final class LibraryViewController: NSViewController {
         sortPopup.target = self
         sortPopup.action = #selector(sortChanged)
 
+        // Hide hard 1px separator — transitional blur provides soft boundary instead.
+        separator.isHidden = true
+        separator.alphaValue = 0
         view.addSubview(separator)
         NSLayoutConstraint.activate([
-            separator.topAnchor.constraint(equalTo: headerView.bottomAnchor, constant: 8),
+            separator.topAnchor.constraint(equalTo: headerView.bottomAnchor),
             separator.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             separator.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             separator.heightAnchor.constraint(equalToConstant: 1),
         ])
+
+        // Soft fade mask at bottom edge of header — content blurs progressively.
+        let mask = CAGradientLayer()
+        mask.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
+        mask.locations = [0, 0.7, 1]
+        mask.startPoint = CGPoint(x: 0.5, y: 1)
+        mask.endPoint = CGPoint(x: 0.5, y: 0)
+        headerBlurView.wantsLayer = true
+        headerBlurView.layer?.mask = mask
+        headerView.layer?.mask = nil
+        headerGradientMask = mask
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        headerGradientMask?.frame = headerBlurView.bounds
+        CATransaction.commit()
     }
 
     private func setupTable() {
@@ -241,13 +283,19 @@ final class LibraryViewController: NSViewController {
         tableView.target = self
         tableView.doubleAction = #selector(rowDoubleClicked)
 
+        tableView.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
+
         scrollView.documentView = tableView
+        // Underlap header so content scrolls underneath and shows through blur.
+        scrollView.automaticallyAdjustsContentInsets = false
+        scrollView.contentInsets = NSEdgeInsets(top: 72, left: 0, bottom: 0, right: 0)
+        scrollView.scrollerInsets = NSEdgeInsets(top: 72, left: 0, bottom: 0, right: 0)
 
         view.addSubview(scrollView)
         view.addSubview(loadingIndicator)
 
         NSLayoutConstraint.activate([
-            scrollView.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 1),
+            scrollView.topAnchor.constraint(equalTo: view.topAnchor),
             scrollView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             scrollView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             scrollView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
@@ -255,6 +303,12 @@ final class LibraryViewController: NSViewController {
             loadingIndicator.centerXAnchor.constraint(equalTo: view.centerXAnchor),
             loadingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
         ])
+
+        // Keep header visually above scrollView so content scrolls underneath blur.
+        headerView.wantsLayer = true
+        headerView.layer?.zPosition = 10
+        scrollView.wantsLayer = true
+        scrollView.layer?.zPosition = 0
     }
 
     private func setupEmpty() {

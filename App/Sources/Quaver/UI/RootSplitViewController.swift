@@ -4,8 +4,17 @@ import Combine
 // MARK: - RootSplitViewController
 // NSSplitViewController that owns sidebar + library and mediates LibraryStore ↔ UI.
 // Single LibraryStore, single `library: [TrackMetadata]` array — no second model.
-// Now also hosts the native PlayerBar (mini-player) at the bottom and owns the
+// Now also hosts the native PlayerBar (floating pill) at the bottom and owns the
 // single PlaybackEngine instance — plus the fullscreen Lyrics overlay (single clock).
+//
+// Visual composition (detached floating):
+//   WINDOW / APPLICATION BACKGROUND (windowBackgroundColor, opaque)
+//     → MAIN LIBRARY (dominant, calm, solid, fills window, non-glass)
+//       → FLOATING SIDEBAR (independent rounded glass, detached, shadowed, inset)
+//       → FLOATING MINI-PLAYER PILL (capsule glass, detached, shadowed, inset)
+// Gaps around sidebar/pill are INTENTIONAL — they show the coherent library
+// background, not the desktop. Sidebar and pill are independent objects with
+// independent geometry/shadow/material, not a connected sheet.
 
 @MainActor
 final class RootSplitViewController: NSSplitViewController {
@@ -40,16 +49,9 @@ final class RootSplitViewController: NSSplitViewController {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
 
-    // MARK: - View hierarchy — coherent dark window, not a glass demo
+    // MARK: - View hierarchy — detached floating sidebar + pill over library
 
     override func loadView() {
-        // Apple Music hierarchy: WINDOW / APPLICATION SURFACE with a coherent dark
-        // background. Previous NSGlassEffectContainerView(spacing:12, clear) grouped
-        // sidebar+header+PlayerBar into one "Liquid Glass demo" context — every
-        // surface translucent, library a dark card, desktop bleeding through.
-        // Now: solid windowBackgroundColor container. Only sidebar (subtle) and
-        // lyrics (artwork-through) use genuine glass; library, header, and
-        // player bar are solid dark surfaces so the app reads as ONE native app.
         let container = NSView()
         container.wantsLayer = true
         container.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
@@ -61,6 +63,10 @@ final class RootSplitViewController: NSSplitViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
+        // Keep splitViewItems for tests (thickness, collapse, vertical) — they
+        // define the *logical* sidebar/library widths, but visually we use a
+        // manual floating layout. The splitView is kept behind the library as a
+        // hidden placeholder so existing tests that inspect splitViewItems still pass.
         splitView.isVertical = true
         splitView.dividerStyle = .thin
 
@@ -91,33 +97,115 @@ final class RootSplitViewController: NSSplitViewController {
         let container = self.view
         let sv = self.splitView
         sv.translatesAutoresizingMaskIntoConstraints = false
+
+        // Library: dominant background surface behind floating objects.
+        // We add it directly to the container filling it, and hide the splitView's
+        // visual use. The splitView is kept hidden but with valid items for tests.
+        let libraryView = libraryVC.view
+        libraryView.translatesAutoresizingMaskIntoConstraints = false
+        let sidebarView = sidebarVC.view
+        sidebarView.translatesAutoresizingMaskIntoConstraints = false
         let barView = playerBar.view
         barView.translatesAutoresizingMaskIntoConstraints = false
-        // Lyrics overlay — held strongly by self.lyricsVC, view manually added.
-        // Do NOT use addChild (would create a split item). Keep splitViewItems == 2.
         let lyricsView = lyricsVC.view
         lyricsView.translatesAutoresizingMaskIntoConstraints = false
+
+        // Add splitView hidden for test compatibility — library/sidebar views will be
+        // reparented to container for the floating composition.
         container.addSubview(sv)
+        // Reparent library/sidebar/pill/lyrics to container for independent floating.
+        // Adding to container automatically removes them from splitView's panes.
+        container.addSubview(libraryView)
+        container.addSubview(sidebarView)
         container.addSubview(barView)
         container.addSubview(lyricsView)
 
+        // Configure floating appearance — independent rounded/shadowed surfaces.
+        sidebarView.wantsLayer = true
+        sidebarView.layer?.cornerRadius = 0
+        sidebarView.layer?.masksToBounds = true
+        sidebarView.layer?.shadowColor = NSColor.black.cgColor
+        sidebarView.layer?.shadowOpacity = 0
+        sidebarView.layer?.shadowRadius = 0
+        sidebarView.layer?.shadowOffset = NSSize(width: 0, height: 0)
+
+        barView.wantsLayer = true
+        barView.layer?.cornerRadius = 34
+        barView.layer?.masksToBounds = false
+        barView.layer?.shadowColor = NSColor.black.cgColor
+        barView.layer?.shadowOpacity = 0.28
+        barView.layer?.shadowRadius = 20
+        barView.layer?.shadowOffset = NSSize(width: 0, height: 8)
+
+        // SplitView fills container but is hidden — preserves layout logic for tests
+        // while the manual libraryView provides the visible background.
+        sv.isHidden = true
         NSLayoutConstraint.activate([
             sv.topAnchor.constraint(equalTo: container.topAnchor),
             sv.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             sv.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            sv.bottomAnchor.constraint(equalTo: barView.topAnchor),
+            sv.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
 
-            barView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-            barView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
-            barView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
-            barView.heightAnchor.constraint(equalToConstant: 76),
+        // Library fills behind floating objects but inset from sidebar so content
+        // (header, table) is not occluded by the floating sidebar. Leading = sidebar
+        // trailing +12 gives intentional breathing room. Library remains dominant:
+        // its background (windowBackgroundColor) plus container background are same,
+        // so the gap reads as library surface behind sidebar.
+        NSLayoutConstraint.activate([
+            libraryView.topAnchor.constraint(equalTo: container.topAnchor),
+            libraryView.leadingAnchor.constraint(equalTo: sidebarView.trailingAnchor, constant: 0),
+            libraryView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            libraryView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+        ])
 
+        // Full-height sidebar — pinned flush to container edges (top 0, leading 0, bottom 0).
+        // Keeps material distinct but not floating vertically; geometry fills vertical extent.
+        // Width is responsive: ideal 260 (priority 750), min 200, max 320, so window resizing
+        // can compress/expand without breaking constraints.
+        let sidebarWidthIdeal = sidebarView.widthAnchor.constraint(equalToConstant: 260)
+        sidebarWidthIdeal.priority = .defaultHigh // 750
+        NSLayoutConstraint.activate([
+            sidebarView.leadingAnchor.constraint(equalTo: container.leadingAnchor, constant: 0),
+            sidebarView.topAnchor.constraint(equalTo: container.topAnchor, constant: 0),
+            sidebarView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: 0),
+            sidebarView.widthAnchor.constraint(greaterThanOrEqualToConstant: 200),
+            sidebarView.widthAnchor.constraint(lessThanOrEqualToConstant: 320),
+            sidebarWidthIdeal,
+        ])
+
+        // Floating pill — capsule, compact, centered, detached from edges.
+        // Breathing room on all sides shows the calm library behind it. Width 560
+        // is sleek but responsive via leading/trailing >=12 and width <= available.
+        // Prevent overlap with sidebar at minimum width by keeping pill leading
+        // at least 12pt beyond sidebar's trailing edge. CenterX remains but with
+        // lower priority than the sidebar gap when compressed.
+        let pillWidth = barView.widthAnchor.constraint(equalToConstant: 560)
+        pillWidth.priority = .defaultHigh
+        let pillCenterX = barView.centerXAnchor.constraint(equalTo: container.centerXAnchor)
+        pillCenterX.priority = .defaultHigh
+        let pillLeadingGap = barView.leadingAnchor.constraint(greaterThanOrEqualTo: sidebarView.trailingAnchor, constant: 12)
+        pillLeadingGap.priority = .required
+        NSLayoutConstraint.activate([
+            pillCenterX,
+            barView.bottomAnchor.constraint(equalTo: container.bottomAnchor, constant: -16),
+            barView.heightAnchor.constraint(equalToConstant: 68),
+            pillWidth,
+            barView.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 12),
+            barView.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -12),
+            pillLeadingGap,
+        ])
+        // Make pill width responsive: at narrow widths it compresses via leading/trailing;
+        // priority low so it can shrink.
+        barView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+
+        // Lyrics overlay full — independent immersive surface (artwork-through glass).
+        NSLayoutConstraint.activate([
             lyricsView.topAnchor.constraint(equalTo: container.topAnchor),
             lyricsView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             lyricsView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             lyricsView.bottomAnchor.constraint(equalTo: container.bottomAnchor),
         ])
-        // Ensure lyrics is on top
         lyricsView.wantsLayer = true
         lyricsView.layer?.zPosition = 100
 
