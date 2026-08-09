@@ -1,4 +1,5 @@
 import Foundation
+import Combine
 
 // MARK: - Persisted shapes (mirror JS localStorage exactly)
 // JS keys: quaver-playlists, quaver-liked-tracks, quaver-recently-played, quaver-icon-style
@@ -56,13 +57,19 @@ final class LibraryStore: ObservableObject {
 
     // MARK: Published state (single source of truth the UI binds to)
 
-    @Published var playlists: [QuaverPlaylist] { didSet { savePlaylists() } }
-    @Published var likedTrackKeys: Set<String> { didSet { saveLiked() } }
-    @Published var recentlyPlayed: [RecentlyPlayedEntry] { didSet { saveRecentlyPlayed() } }
+    @Published var playlists: [QuaverPlaylist] { didSet { if !isLoading { savePlaylists(); sendDidChange() } } }
+    @Published var likedTrackKeys: Set<String> { didSet { if !isLoading { saveLiked(); sendDidChange() } } }
+    @Published var recentlyPlayed: [RecentlyPlayedEntry] { didSet { if !isLoading { saveRecentlyPlayed(); sendDidChange() } } }
 
-    // Non-persisted UI state (kept here for convenience; reset on launch)
-    @Published var librarySort: LibrarySort = .title
-    @Published var libraryFilter: LibraryFilter = .all
+    // Non-persisted UI state
+    @Published var librarySort: LibrarySort = .title { didSet { if oldValue != librarySort { sendDidChange() } } }
+    @Published var libraryFilter: LibraryFilter = .all { didSet { if oldValue != libraryFilter { sendDidChange() } } }
+
+    // Synchronous change publisher for AppKit (avoids Combine timing issues with @Published + MainActor).
+    // Emits AFTER the property has been set, so observers reading store see the new value.
+    private let didChangeSubject = PassthroughSubject<Void, Never>()
+    var didChangePublisher: AnyPublisher<Void, Never> { didChangeSubject.eraseToAnyPublisher() }
+    private func sendDidChange() { didChangeSubject.send(()) }
 
     private let defaults: UserDefaults
     private var isLoading = false
@@ -71,11 +78,13 @@ final class LibraryStore: ObservableObject {
 
     init(defaults: UserDefaults = LibraryStore.makeDefaults()) {
         self.defaults = defaults
-        // Load, falling back to [] on corrupt/missing.
+        isLoading = true
+        defer { isLoading = false }
         self.playlists = LibraryStore.load([QuaverPlaylist].self, key: QuaverStoreKeys.playlists, defaults: defaults) ?? []
         let likedArray: [String] = LibraryStore.load([String].self, key: QuaverStoreKeys.likedTracks, defaults: defaults) ?? []
         self.likedTrackKeys = Set(likedArray)
         self.recentlyPlayed = LibraryStore.load([RecentlyPlayedEntry].self, key: QuaverStoreKeys.recentlyPlayed, defaults: defaults) ?? []
+        // librarySort/filter stay at defaults (not persisted in legacy); could load if desired.
     }
 
     // MARK: Mutations
@@ -96,14 +105,17 @@ final class LibraryStore: ObservableObject {
 
     func addTrack(_ trackKey: String, toPlaylist id: String) {
         guard let idx = playlists.firstIndex(where: { $0.id == id }) else { return }
-        if !playlists[idx].trackKeys.contains(trackKey) {
-            playlists[idx].trackKeys.append(trackKey)
-        }
+        if playlists[idx].trackKeys.contains(trackKey) { return }
+        var copy = playlists
+        copy[idx].trackKeys.append(trackKey)
+        playlists = copy
     }
 
     func removeTrack(_ trackKey: String, fromPlaylist id: String) {
         guard let idx = playlists.firstIndex(where: { $0.id == id }) else { return }
-        playlists[idx].trackKeys.removeAll { $0 == trackKey }
+        var copy = playlists
+        copy[idx].trackKeys.removeAll { $0 == trackKey }
+        playlists = copy
     }
 
     func deletePlaylist(id: String) {
@@ -126,7 +138,6 @@ final class LibraryStore: ObservableObject {
     func importLegacyContainer(_ container: [String: Data]) {
         if let data = container[QuaverStoreKeys.playlists],
            let imported = try? JSONDecoder().decode([QuaverPlaylist].self, from: data) {
-            // Merge by id — keep native if conflict, append missing.
             var byId = Dictionary(uniqueKeysWithValues: playlists.map { ($0.id, $0) })
             for pl in imported where byId[pl.id] == nil { byId[pl.id] = pl }
             playlists = Array(byId.values)
@@ -137,7 +148,6 @@ final class LibraryStore: ObservableObject {
         }
         if let data = container[QuaverStoreKeys.recentlyPlayed],
            let imported = try? JSONDecoder().decode([RecentlyPlayedEntry].self, from: data) {
-            // Merge by key, newest wins, then resort MRU and cap 50.
             var byKey: [String: RecentlyPlayedEntry] = [:]
             for e in recentlyPlayed { byKey[e.key] = e }
             for e in imported {
@@ -243,8 +253,6 @@ enum LibraryQueries {
         case .artist: return tracks.sorted { $0.artist.localizedCaseInsensitiveCompare($1.artist) == .orderedAscending }
         case .album:  return tracks.sorted { $0.album.localizedCaseInsensitiveCompare($1.album) == .orderedAscending }
         case .recent:
-            // Original JS for "recent" sort: playlist.indexOf(b)-indexOf(a) (file order reversed).
-            // Persisted recency: sort by recentlyPlayed playedAt desc; fallback to reverse input.
             let pos: [String: Double] = Dictionary(uniqueKeysWithValues: recentlyPlayed.map { ($0.key, $0.playedAt) })
             return tracks.sorted {
                 let aPos = pos[$0.key] ?? -1
