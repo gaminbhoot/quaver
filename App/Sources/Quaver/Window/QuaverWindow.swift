@@ -18,20 +18,26 @@ final class QuaverWindow: NSWindow {
         hidesOnDeactivate = false
         level = .normal
         collectionBehavior = [.managed, .canJoinAllSpaces]
-        // Liquid Glass needs the window itself to be transparent where glass shows
-        // desktop blur. An opaque windowBackgroundColor behind a .behindWindow glass
-        // would defeat depth and make the sidebar read as a flat dark slab. Use
-        // clear + non-opaque and let each pane (sidebar glass vs library opaque)
-        // define its own background. Library's own view will still be opaque for
-        // list readability; sidebar's glass will show desktop through the clear,
-        // giving genuine depth instead of an opaque rectangle.
-        backgroundColor = .clear
-        isOpaque = false
+        // Coherent native macOS background — glass samples *window content*,
+        // not the desktop. Previous clear + isOpaque false made .behindWindow
+        // glass punch through to the wallpaper, so sidebar/PlayerBar looked
+        // like transparent cutouts (desktop bleed) with the opaque library
+        // between them as a hard dark rectangle. Now:
+        //   WINDOW BACKGROUND (windowBackgroundColor, opaque)
+        //     → APPLICATION CONTENT (library opaque where needed)
+        //       → NATIVE GLASS SURFACE (translucent withinWindow)
+        //         → NATIVE CONTROLS
+        // Glass has depth/vibrancy without exposing the desktop, and the
+        // sidebar → library boundary becomes a subtle material edge, not a
+        // transparent→opaque→transparent mismatch.
+        backgroundColor = NSColor.windowBackgroundColor
+        isOpaque = true
         minSize = NSSize(width: 800, height: 500)
-        // Placeholder that proves no WebView exists — also clear so glass shows through.
+        // Placeholder that proves no WebView exists — matches window background
+        // so there is no flash of desktop before RootSplitViewController loads.
         let placeholder = NSView(frame: contentRect(forFrameRect: frame))
         placeholder.wantsLayer = true
-        placeholder.layer?.backgroundColor = NSColor.clear.cgColor
+        placeholder.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         contentView = placeholder
         assert(!String(describing: type(of: contentView as Any)).contains("WKWebView"),
                "QuaverWindow must not contain WKWebView")

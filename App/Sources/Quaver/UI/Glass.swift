@@ -52,10 +52,13 @@ enum QuaverGlass {
         let v = NSVisualEffectView()
         v.translatesAutoresizingMaskIntoConstraints = false
         v.state = .active
-        switch surface {
-        case .sidebar, .playerBar: v.blendingMode = .behindWindow
-        case .header, .lyrics: v.blendingMode = .withinWindow
-        }
+        // All in-window surfaces sample the *window's own* content/background,
+        // not the desktop. .behindWindow would punch through to the wallpaper
+        // and make the sidebar/PlayerBar look like transparent cutouts over
+        // the desktop (the c28bb40 bug). .withinWindow keeps glass integrated
+        // with the application's coherent background → LIST → GLASS → CONTROLS
+        // hierarchy, preserving translucency/vibrancy without desktop bleed.
+        v.blendingMode = .withinWindow
         v.isEmphasized = true
         v.wantsLayer = true
         switch surface {
