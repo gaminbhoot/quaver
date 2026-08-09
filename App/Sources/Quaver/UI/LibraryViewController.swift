@@ -3,7 +3,9 @@ import Combine
 
 // MARK: - LibraryViewController
 // Native library content area: NSTableView + header + empty states.
-// No HTML. Uses LibraryStore as single source for playlists/liked/recent + sort/filter.
+// Apple Music hierarchy: library is the dominant solid dark surface.
+// Header belongs to the library — NOT a floating glass panel.
+// No glass here; content (artwork/title/metadata) has priority.
 
 @MainActor
 protocol LibraryViewControllerDelegate: AnyObject {
@@ -133,6 +135,8 @@ final class LibraryViewController: NSViewController {
         let b = NSBox()
         b.translatesAutoresizingMaskIntoConstraints = false
         b.boxType = .separator
+        // Apple Music minimal hairline — not a strong slab boundary.
+        b.alphaValue = 0.14
         return b
     }()
 
@@ -150,46 +154,15 @@ final class LibraryViewController: NSViewController {
     override func loadView() {
         self.view = NSView()
         view.wantsLayer = true
-        // System window background — adapts to Light/Dark and lets the
-        // header glass (withinWindow) show scroll content blur with depth
-        // instead of a flat opaque slab. Previous hardcoded 0.11 was too
-        // dark and defeated vibrancy, contributing to the flat disconnect
-        // between glass sidebar and library.
+        // Coherent dark Apple Music-like surface — header and rows share this.
         view.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
     }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         setupHeader()
-        installHeaderGlass()
         setupTable()
         setupEmpty()
-    }
-
-    private func installHeaderGlass() {
-        // Header should float over the scroll content with native material
-        // (withinWindow) so artwork/list behind shows through with blur.
-        // Without this the header was a flat opaque rectangle disconnected
-        // from the Liquid Glass surfaces.
-        let glass = QuaverGlass.backgroundView(for: .header)
-        glass.translatesAutoresizingMaskIntoConstraints = false
-        headerView.addSubview(glass, positioned: .below, relativeTo: nil)
-        headerView.wantsLayer = true
-        NSLayoutConstraint.activate([
-            glass.topAnchor.constraint(equalTo: headerView.topAnchor),
-            glass.leadingAnchor.constraint(equalTo: headerView.leadingAnchor),
-            glass.trailingAnchor.constraint(equalTo: headerView.trailingAnchor),
-            glass.bottomAnchor.constraint(equalTo: headerView.bottomAnchor),
-        ])
-        if glass is NSVisualEffectView || ({
-            if #available(macOS 26.0, *) { return glass is NSGlassEffectView }
-            return false
-        }()) {
-            headerView.layer?.backgroundColor = NSColor.clear.cgColor
-            // Soften the hard separator when glass is active — the glass's own
-            // edge highlight is the visual boundary, not an opaque 1px rectangle.
-            separator.alphaValue = 0.5
-        }
     }
 
     private func setupHeader() {

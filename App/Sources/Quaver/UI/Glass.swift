@@ -1,65 +1,79 @@
 import AppKit
 
-// MARK: - Quaver Glass — native AppKit materials (NSVisualEffectView / NSGlassEffectView)
-// Visual-only phase. No layout redesign, no state change, no timers, no polling.
-// Minimum number of surfaces. Respects reduced transparency and appearance.
-// Tahoe (macOS 26) uses genuine NSGlassEffectView with subtle tints and proper
-// container grouping so sidebar → library and PlayerBar → content transitions are
-// seamless, not hard opaque rectangles.
+// MARK: - Quaver Glass — Apple Music-like restrained materials
+// Visual priority: 1 Content 2 Navigation 3 Player controls 4 Material/depth 5 Glass
+// NOT: 1 Glass 2 Blur 3 Transparency. Glass supports the UI; it does not announce itself.
+//
+// Apple Music principles used as reference (no branding copied):
+// - coherent dark window/content background (windowBackgroundColor, opaque)
+// - sidebar is subtly distinct but *attached* to the window, not a floating sheet
+// - library is the dominant stable surface — header belongs to it, no glass panels
+// - player bar is an integrated dark refined surface, not a transparent window
+// - minimal borders / minimal noise / artwork is important
+// - no desktop wallpaper bleed — withinWindow sampling of window content only
+// - reduced-transparency falls back to solid (no blur)
+// Lyrics is the exception: artwork IS the visual background -> glass remains.
 
 @MainActor
 enum QuaverGlass {
 
     enum Surface { case sidebar, playerBar, header, lyrics }
 
-    /// Returns a background view that provides native translucency.
-    /// - On macOS 26+: genuine NSGlassEffectView (Liquid Glass).
-    /// - Earlier: NSVisualEffectView with appropriate material.
-    /// - If reduced transparency is enabled: solid fallback (no blur).
+    /// Returns the appropriate background view for a surface.
+    /// On Apple Music hierarchy we use glass *selectively*:
+    /// sidebar = subtle material, lyrics = artwork-through glass,
+    /// header/playerBar = solid window background (no glass) for a coherent app.
     static func backgroundView(for surface: Surface) -> NSView {
         if NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency {
             return solidFallback(for: surface)
         }
-        if #available(macOS 26.0, *) {
-            return glassEffectView(for: surface)
-        } else {
-            return visualEffectView(for: surface)
+        switch surface {
+        case .sidebar:
+            // Only sidebar and lyrics warrant true translucency.
+            if #available(macOS 26.0, *) {
+                return glassEffectView(for: .sidebar)
+            } else {
+                return visualEffectView(for: .sidebar)
+            }
+        case .lyrics:
+            if #available(macOS 26.0, *) {
+                return glassEffectView(for: .lyrics)
+            } else {
+                return visualEffectView(for: .lyrics)
+            }
+        case .header, .playerBar:
+            // Apple Music: header belongs to library, player is integrated dark bar.
+            // A glass panel here would read as an obvious rectangle and make the
+            // library feel like a dark card beside translucent sheets. Solid keeps
+            // WINDOW → COHERENT DARK CONTENT → SUBTLE SIDEBAR → LIBRARY →
+            // SUBTLE PLAYER hierarchy.
+            return solidFallback(for: surface)
         }
     }
 
-    /// Container that groups Liquid Glass surfaces for correct depth + batching.
-    /// On Tahoe, ancestor NSGlassEffectContainerView merges descendant glass views
-    /// when they are similar and within `spacing`. Use at the window/root level
-    /// so sidebar, header, playerBar share a single glass context. On older OS,
-    /// returns a plain transparent container.
+    /// Container for the window's root. On 43bacca this was a clear
+    /// NSGlassEffectContainerView(spacing:12) grouping sidebar+header+playerBar so
+    /// they shared a single "demo" depth context — the source of the
+    /// "Liquid Glass applied everywhere" look. Apple Music has ONE coherent dark
+    /// window; the container is therefore a normal opaque view in the window
+    /// background color. We keep a plain NSView so glass (sidebar/lyrics only)
+    /// samples the window's own content via .withinWindow, not the desktop.
     static func containerView(spacing: CGFloat = 12) -> NSView {
-        if #available(macOS 26.0, *) {
-            let c = NSGlassEffectContainerView()
-            c.spacing = spacing
-            c.wantsLayer = true
-            c.layer?.backgroundColor = NSColor.clear.cgColor
-            return c
-        } else {
-            let v = NSView()
-            v.wantsLayer = true
-            v.layer?.backgroundColor = NSColor.clear.cgColor
-            return v
-        }
+        let v = NSView()
+        v.wantsLayer = true
+        v.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        return v
     }
 
-    /// Convenience for callers that need NSVisualEffectView specifically.
     static func visualEffectView(for surface: Surface) -> NSVisualEffectView {
         let v = NSVisualEffectView()
         v.translatesAutoresizingMaskIntoConstraints = false
         v.state = .active
-        // All in-window surfaces sample the *window's own* content/background,
-        // not the desktop. .behindWindow would punch through to the wallpaper
-        // and make the sidebar/PlayerBar look like transparent cutouts over
-        // the desktop (the c28bb40 bug). .withinWindow keeps glass integrated
-        // with the application's coherent background → LIST → GLASS → CONTROLS
-        // hierarchy, preserving translucency/vibrancy without desktop bleed.
+        // All in-window — never sample the desktop/wallpaper. This is what removed
+        // the c28bb40/43bacca wallpaper bleed. Kept here for sidebar/lyrics.
         v.blendingMode = .withinWindow
-        v.isEmphasized = true
+        // Sidebar in Apple Music is restrained — not emphasized vibrancy.
+        v.isEmphasized = false
         v.wantsLayer = true
         switch surface {
         case .sidebar:
@@ -83,35 +97,28 @@ enum QuaverGlass {
     private static func glassEffectView(for surface: Surface) -> NSView {
         let g = NSGlassEffectView()
         g.translatesAutoresizingMaskIntoConstraints = false
-        // Style: .clear is more translucent (vibrant, shows desktop/content behind
-        // with depth); .regular is slightly more opaque for bars that need readability.
-        switch surface {
-        case .sidebar, .lyrics: g.style = .clear
-        case .playerBar, .header: g.style = .regular
-        }
-        // CornerRadius 0 keeps edge-to-edge surfaces seamless; the window's own
-        // rounded corners clip. Floating surfaces (if any) would use non-zero.
-        g.cornerRadius = 0
-        // Subtle tints — enough to preserve Quaver's dark aesthetic but light enough
-        // that vibrancy/depth shows through. Previous tints (0.35–0.55) were so dark
-        // the glass read as an opaque slab; these are 60–70% lighter.
         switch surface {
         case .sidebar:
-            // Very subtle — sidebar should show desktop blur with depth, not a dark rectangle.
-            g.tintColor = NSColor.windowBackgroundColor.withAlphaComponent(0.10)
-        case .playerBar:
-            // Bottom bar needs a touch more opacity for control legibility, but still
-            // translucent so it blends into library content rather than floating as a slab.
-            g.tintColor = NSColor.windowBackgroundColor.withAlphaComponent(0.16)
-        case .header:
-            // Header floats over scroll content; subtle so list shows through with blur.
-            g.tintColor = NSColor.windowBackgroundColor.withAlphaComponent(0.09)
+            // Apple Music sidebar: .regular with a *restrained* tint. Previous
+            // attempts: 0.35-0.55 read as opaque slab, 0.10 was a transparent sheet
+            // that exposed the desktop. 0.82 over the opaque window background gives
+            // depth/vibrancy but the sidebar still reads as dark, attached, and
+            // subtly distinct from the library — not a demo panel.
+            g.style = .regular
+            g.tintColor = NSColor.windowBackgroundColor.withAlphaComponent(0.82)
         case .lyrics:
-            // Immersive lyrics over artwork — artwork must remain visible through glass.
+            // Immersive lyrics over artwork — artwork must remain visible.
+            g.style = .clear
             g.tintColor = NSColor.black.withAlphaComponent(0.18)
+        case .playerBar, .header:
+            // Not used — header/playerBar intentionally return solidFallback, but
+            // keep valid case for completeness.
+            g.style = .regular
+            g.tintColor = NSColor.windowBackgroundColor.withAlphaComponent(0.84)
         }
-        // Glass needs a contentView per header docs; an empty clear view is sufficient
-        // when we use the glass as a background sibling (controls stay interactive above).
+        g.cornerRadius = 0
+        // NSGlassEffectView requires a contentView — clear placeholder when used as
+        // a background sibling (controls stay interactive above).
         let placeholder = NSView()
         placeholder.translatesAutoresizingMaskIntoConstraints = false
         placeholder.wantsLayer = true
@@ -124,12 +131,12 @@ enum QuaverGlass {
         let v = NSView()
         v.translatesAutoresizingMaskIntoConstraints = false
         v.wantsLayer = true
+        // All solid surfaces share the same windowBackgroundColor so the app reads
+        // as ONE dark app. The subtle sidebar glass above this is the only
+        // material separation; library + header are continuous; player is an
+        // integrated bottom surface with a faint hairline (handled in its VC).
         switch surface {
-        case .sidebar:
-            v.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
-        case .playerBar:
-            v.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
-        case .header:
+        case .sidebar, .playerBar, .header:
             v.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         case .lyrics:
             v.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.85).cgColor

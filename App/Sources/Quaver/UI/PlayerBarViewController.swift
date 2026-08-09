@@ -2,8 +2,10 @@ import AppKit
 import Combine
 
 // MARK: - PlayerBarViewController
-// Native mini-player bottom bar. Pure AppKit, SF Symbols, no WKWebView.
-// Single source of truth: PlaybackEngine. No independent clock, no duplicated state.
+// Native mini-player bottom bar. Apple Music-like: integrated dark subtle
+// refined surface — not a floating transparent sheet. 76pt height, artwork +
+// centered transport + right cluster, artwork is important but not competing.
+// No desktop wallpaper bleed, no excessive blur, no giant glass rectangle.
 
 @MainActor
 protocol PlayerBarViewControllerDelegate: AnyObject {
@@ -21,12 +23,15 @@ final class PlayerBarViewController: NSViewController {
     private let engine: PlaybackEngine
     private var cancellables = Set<AnyCancellable>()
 
-    // MARK: UI — separator
+    // MARK: UI — subtle material hairline (not a strong slab boundary)
 
     private let topSeparator: NSBox = {
         let b = NSBox()
         b.translatesAutoresizingMaskIntoConstraints = false
         b.boxType = .separator
+        // Apple Music refined hairline — visible enough to give the player
+        // hierarchy, faint enough not to read as a card edge.
+        b.alphaValue = 0.12
         return b
     }()
 
@@ -219,49 +224,23 @@ final class PlayerBarViewController: NSViewController {
     override func loadView() {
         let v = NSView()
         v.wantsLayer = true
-        // System background — cleared to transparent when glass is active so the
-        // Liquid Glass material shows desktop/content blur with depth. Previous
-        // hardcoded 0.13 at 1.0 alpha plus 0.55 tint made the bar a flat opaque
-        // slab disconnected from the window.
+        // Apple Music: coherent dark application surface. Player belongs to the
+        // window — same windowBackgroundColor as the rest, with only a faint
+        // hairline above it for hierarchy. Previous glass approach (hudWindow at
+        // 0.16 + clear host + .behindWindow) made the bar a transparent window
+        // over the desktop; solid keeps it integrated and lets artwork/titles
+        // have priority rather than the blur.
         v.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
         self.view = v
     }
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        installGlassBackground()
         setupLayout()
         setupActions()
         bindEngine()
         render(engine.state)
         view.setAccessibilityLabel("Player")
-        // When genuine glass is active, the material's own highlight is the edge
-        // — the hard 1px separator would read as an extra opaque slab boundary.
-        // Soften it so the bar blends into the library content.
-        if view.layer?.backgroundColor == NSColor.clear.cgColor {
-            topSeparator.alphaValue = 0.35
-        }
-    }
-
-    private func installGlassBackground() {
-        let glass = QuaverGlass.backgroundView(for: .playerBar)
-        glass.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(glass, positioned: .below, relativeTo: nil)
-        NSLayoutConstraint.activate([
-            glass.topAnchor.constraint(equalTo: view.topAnchor),
-            glass.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            glass.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            glass.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
-        // Make host transparent when real glass/material is used so the translucent
-        // effect shows without a hard opaque edge. Solid fallback keeps opaque.
-        if glass is NSVisualEffectView {
-            view.layer?.backgroundColor = NSColor.clear.cgColor
-        } else if #available(macOS 26.0, *) {
-            if glass is NSGlassEffectView {
-                view.layer?.backgroundColor = NSColor.clear.cgColor
-            }
-        }
     }
 
     // MARK: Layout

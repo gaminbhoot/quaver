@@ -40,26 +40,20 @@ final class RootSplitViewController: NSSplitViewController {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) not supported") }
 
-    // MARK: - View hierarchy — container with splitView + playerBar + lyrics overlay
+    // MARK: - View hierarchy — coherent dark window, not a glass demo
 
     override func loadView() {
-        // Liquid Glass container — on Tahoe this groups sidebar + PlayerBar
-        // glass so they share a single depth context and transitions are
-        // seamless (no hard opaque rectangles). Background is clear so
-        // .behindWindow glass (sidebar / PlayerBar) shows desktop blur with
-        // depth, while the library pane's own opaque view covers its area.
-        if #available(macOS 26.0, *) {
-            let container = NSGlassEffectContainerView()
-            container.spacing = 12
-            container.wantsLayer = true
-            container.layer?.backgroundColor = NSColor.clear.cgColor
-            self.view = container
-        } else {
-            let container = NSView()
-            container.wantsLayer = true
-            container.layer?.backgroundColor = NSColor.clear.cgColor
-            self.view = container
-        }
+        // Apple Music hierarchy: WINDOW / APPLICATION SURFACE with a coherent dark
+        // background. Previous NSGlassEffectContainerView(spacing:12, clear) grouped
+        // sidebar+header+PlayerBar into one "Liquid Glass demo" context — every
+        // surface translucent, library a dark card, desktop bleeding through.
+        // Now: solid windowBackgroundColor container. Only sidebar (subtle) and
+        // lyrics (artwork-through) use genuine glass; library, header, and
+        // player bar are solid dark surfaces so the app reads as ONE native app.
+        let container = NSView()
+        container.wantsLayer = true
+        container.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        self.view = container
     }
 
     // MARK: - Lifecycle
