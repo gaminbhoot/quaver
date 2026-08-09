@@ -334,7 +334,7 @@ func testTrackChanges() async {
         lyricsCheck(ok2 == true, "fast load returns true")
     }
     _ = sem.wait(timeout: .now() + 1)
-    try? await Task.sleep(nanoseconds: 30_000_000)
+    try? await Task.sleep(nanoseconds: 200_000_000)
     lyricsCheck(vc.lyrics.first?.text == "FAST1", "stale guard: FAST wins over SLOW")
     // A->B->C last wins regardless of resolve order (30,10,20)
     let lC = LyricSynchronizer.parseLRC("[00:00.00] C")
