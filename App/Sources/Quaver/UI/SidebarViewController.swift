@@ -51,6 +51,10 @@ final class SidebarViewController: NSViewController {
         sv.drawsBackground = false
         sv.borderType = .noBorder
         sv.autohidesScrollers = true
+        sv.scrollerStyle = .overlay
+        sv.usesPredominantAxisScrolling = true
+        sv.verticalScrollElasticity = .allowed
+        sv.horizontalScrollElasticity = .none
         return sv
     }()
 

@@ -23,6 +23,16 @@ final class PlayerBarViewController: NSViewController {
     private let engine: PlaybackEngine
     private var cancellables = Set<AnyCancellable>()
 
+    // Diff state — avoid touching layer/textColor/image on every 10Hz tick
+    private var lastTrackKey: String?
+    private var lastIsPlaying: Bool?
+    private var lastShuffle: Bool?
+    private var lastRepeat: RepeatMode?
+    private var lastVolume: Double = -1
+    private var lastDuration: Double = -1
+    private var lastElapsedString: String = ""
+    private var lastDurationString: String = ""
+
     // MARK: UI — pill has no top hairline; it is an independent capsule.
     private let topSeparator: NSBox = {
         let b = NSBox()
@@ -421,75 +431,104 @@ final class PlayerBarViewController: NSViewController {
     }
 
     private func render(_ state: PlaybackState) {
-        // Artwork / title / artist from currentTrack
-        if let track = engine.currentTrack {
-            let displayTitle = track.title.isEmpty ? (track.path as NSString).lastPathComponent : track.title
-            let displayArtist = track.artist.isEmpty ? "Unknown Artist" : track.artist
-            titleLabel.stringValue = displayTitle
-            artistLabel.stringValue = displayArtist
-            if let dataURL = track.coverDataURL, let img = Self.image(fromDataURL: dataURL) {
-                artworkView.image = img
-                artworkView.contentTintColor = nil
+        // Track identity — only touch title/artwork/enabled when track changes
+        let curTrack = engine.currentTrack
+        let curKey = curTrack?.key
+        if curKey != lastTrackKey {
+            lastTrackKey = curKey
+            if let track = curTrack {
+                let displayTitle = track.title.isEmpty ? (track.path as NSString).lastPathComponent : track.title
+                let displayArtist = track.artist.isEmpty ? "Unknown Artist" : track.artist
+                titleLabel.stringValue = displayTitle
+                artistLabel.stringValue = displayArtist
+                if let dataURL = track.coverDataURL, let img = CoverImageCache.image(fromDataURL: dataURL) {
+                    artworkView.image = img
+                    artworkView.contentTintColor = nil
+                } else {
+                    artworkView.image = NSImage(systemSymbolName: "music.note", accessibilityDescription: nil)
+                    artworkView.contentTintColor = .secondaryLabelColor
+                }
+                playPauseButton.isEnabled = true
+                previousButton.isEnabled = true
+                nextButton.isEnabled = true
             } else {
+                titleLabel.stringValue = "No track"
+                artistLabel.stringValue = "Select a song to play"
                 artworkView.image = NSImage(systemSymbolName: "music.note", accessibilityDescription: nil)
                 artworkView.contentTintColor = .secondaryLabelColor
+                playPauseButton.isEnabled = false
+                previousButton.isEnabled = false
+                nextButton.isEnabled = false
             }
-            playPauseButton.isEnabled = true
-            previousButton.isEnabled = true
-            nextButton.isEnabled = true
-            progressSlider.isEnabled = state.duration > 0
-        } else {
-            titleLabel.stringValue = "No track"
-            artistLabel.stringValue = "Select a song to play"
-            artworkView.image = NSImage(systemSymbolName: "music.note", accessibilityDescription: nil)
-            artworkView.contentTintColor = .secondaryLabelColor
-            playPauseButton.isEnabled = false
-            previousButton.isEnabled = false
-            nextButton.isEnabled = false
-            progressSlider.isEnabled = false
+        }
+        // Duration-dependent enabled + max — only when duration changes
+        if state.duration != lastDuration {
+            lastDuration = state.duration
+            let hasDuration = state.duration > 0 && curTrack != nil
+            progressSlider.isEnabled = hasDuration
+            let newMax = state.duration > 0 ? state.duration : 1
+            if progressSlider.maxValue != newMax { progressSlider.maxValue = newMax }
+            let newDurStr = state.duration > 0 ? Self.formatDuration(state.duration) : "—:—"
+            if newDurStr != lastDurationString {
+                lastDurationString = newDurStr
+                durationLabel.stringValue = newDurStr
+            }
         }
 
-        // Play/pause
-        let playImageName = state.isPlaying ? "pause.fill" : "play.fill"
-        playPauseButton.image = NSImage(systemSymbolName: playImageName, accessibilityDescription: state.isPlaying ? "Pause" : "Play")
-        playPauseButton.toolTip = state.isPlaying ? "Pause" : "Play"
-        playPauseButton.setAccessibilityLabel(state.isPlaying ? "Pause" : "Play")
-
-        // Shuffle
-        shuffleButton.contentTintColor = state.isShuffle ? NSColor.controlAccentColor : NSColor.secondaryLabelColor
-        shuffleButton.toolTip = state.isShuffle ? "Shuffle on" : "Shuffle off"
-
-        // Repeat
-        switch state.repeatMode {
-        case .off:
-            repeatButton.image = NSImage(systemSymbolName: "repeat", accessibilityDescription: "Repeat off")
-            repeatButton.contentTintColor = .secondaryLabelColor
-            repeatButton.toolTip = "Repeat off"
-        case .all:
-            repeatButton.image = NSImage(systemSymbolName: "repeat", accessibilityDescription: "Repeat all")
-            repeatButton.contentTintColor = .controlAccentColor
-            repeatButton.toolTip = "Repeat all"
-        case .one:
-            repeatButton.image = NSImage(systemSymbolName: "repeat.1", accessibilityDescription: "Repeat one")
-            repeatButton.contentTintColor = .controlAccentColor
-            repeatButton.toolTip = "Repeat one"
+        // Play/pause — only when isPlaying flips
+        if state.isPlaying != lastIsPlaying {
+            lastIsPlaying = state.isPlaying
+            let playImageName = state.isPlaying ? "pause.fill" : "play.fill"
+            playPauseButton.image = NSImage(systemSymbolName: playImageName, accessibilityDescription: state.isPlaying ? "Pause" : "Play")
+            playPauseButton.toolTip = state.isPlaying ? "Pause" : "Play"
+            playPauseButton.setAccessibilityLabel(state.isPlaying ? "Pause" : "Play")
         }
 
-        // Volume
-        if abs(volumeSlider.doubleValue - state.volume) > 0.01 {
-            volumeSlider.doubleValue = state.volume
+        // Shuffle — only when toggled
+        if state.isShuffle != lastShuffle {
+            lastShuffle = state.isShuffle
+            shuffleButton.contentTintColor = state.isShuffle ? NSColor.controlAccentColor : NSColor.secondaryLabelColor
+            shuffleButton.toolTip = state.isShuffle ? "Shuffle on" : "Shuffle off"
         }
-        let volIcon = state.volume == 0 ? "speaker.slash.fill" : (state.volume < 0.5 ? "speaker.wave.1.fill" : "speaker.wave.2.fill")
-        volumeIcon.image = NSImage(systemSymbolName: volIcon, accessibilityDescription: nil)
 
-        // Progress — do not fight the user's drag
+        // Repeat — only when mode changes
+        if state.repeatMode != lastRepeat {
+            lastRepeat = state.repeatMode
+            switch state.repeatMode {
+            case .off:
+                repeatButton.image = NSImage(systemSymbolName: "repeat", accessibilityDescription: "Repeat off")
+                repeatButton.contentTintColor = .secondaryLabelColor
+                repeatButton.toolTip = "Repeat off"
+            case .all:
+                repeatButton.image = NSImage(systemSymbolName: "repeat", accessibilityDescription: "Repeat all")
+                repeatButton.contentTintColor = .controlAccentColor
+                repeatButton.toolTip = "Repeat all"
+            case .one:
+                repeatButton.image = NSImage(systemSymbolName: "repeat.1", accessibilityDescription: "Repeat one")
+                repeatButton.contentTintColor = .controlAccentColor
+                repeatButton.toolTip = "Repeat one"
+            }
+        }
+
+        // Volume — only when change > epsilon
+        if abs(state.volume - lastVolume) > 0.005 {
+            lastVolume = state.volume
+            if abs(volumeSlider.doubleValue - state.volume) > 0.01 {
+                volumeSlider.doubleValue = state.volume
+            }
+            let volIcon = state.volume == 0 ? "speaker.slash.fill" : (state.volume < 0.5 ? "speaker.wave.1.fill" : "speaker.wave.2.fill")
+            volumeIcon.image = NSImage(systemSymbolName: volIcon, accessibilityDescription: nil)
+        }
+
+        // Progress — lightweight, runs every 0.1s but only sets doubleValue/string when not dragging
         if !progressSlider.isTrackingSeek {
-            let dur = state.duration
-            progressSlider.maxValue = dur > 0 ? dur : 1
             progressSlider.doubleValue = state.currentTime
         }
-        elapsedLabel.stringValue = Self.formatDuration(state.currentTime)
-        durationLabel.stringValue = state.duration > 0 ? Self.formatDuration(state.duration) : "—:—"
+        let newElapsed = Self.formatDuration(state.currentTime)
+        if newElapsed != lastElapsedString {
+            lastElapsedString = newElapsed
+            elapsedLabel.stringValue = newElapsed
+        }
     }
 
     // MARK: Actions
@@ -522,10 +561,7 @@ final class PlayerBarViewController: NSViewController {
     }
 
     private static func image(fromDataURL url: String) -> NSImage? {
-        guard let comma = url.firstIndex(of: ",") else { return nil }
-        let b64 = String(url[url.index(after: comma)...])
-        guard let data = Data(base64Encoded: b64) else { return nil }
-        return NSImage(data: data)
+        CoverImageCache.image(fromDataURL: url)
     }
 
     // MARK: Test hooks

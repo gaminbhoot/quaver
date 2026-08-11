@@ -69,6 +69,10 @@ final class LibraryViewController: NSViewController {
         tv.intercellSpacing = NSSize(width: 0, height: 0)
         tv.usesAlternatingRowBackgroundColors = false
         tv.gridStyleMask = []
+        tv.usesAutomaticRowHeights = false
+        tv.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
+        tv.allowsColumnReordering = false
+        tv.focusRingType = .none
         return tv
     }()
 
@@ -79,6 +83,11 @@ final class LibraryViewController: NSViewController {
         sv.hasHorizontalScroller = false
         sv.borderType = .noBorder
         sv.drawsBackground = false
+        sv.autohidesScrollers = true
+        sv.scrollerStyle = .overlay
+        sv.usesPredominantAxisScrolling = true
+        sv.verticalScrollElasticity = .allowed
+        sv.horizontalScrollElasticity = .none
         return sv
     }()
 

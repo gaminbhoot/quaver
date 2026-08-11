@@ -31,6 +31,17 @@ final class LyricsViewController: NSViewController {
 
     private let manualGrace: TimeInterval = 4.5
 
+    // Playback render diff — avoid rebuilding NSImage / attributed strings every 0.1s
+    private var lastLyricsIsPlaying: Bool?
+    private var lastLyricsShuffle: Bool?
+    private var lastLyricsRepeat: RepeatMode?
+    private var lastLyricsVolume: Double = -1
+    private var lastLyricsElapsed: String = ""
+    private var lastLyricsDuration: String = ""
+    private var lastLyricsProgressDuration: Double = -1
+    private var lastWordProgresses: [Double] = []
+    private var lastWordActiveIndex: Int = -99
+
     // MARK: Overlay chrome — solid, no glass (this page only)
 
     private let dimmingView: NSView = {
@@ -229,6 +240,10 @@ final class LyricsViewController: NSViewController {
         sv.borderType = .noBorder
         sv.drawsBackground = false
         sv.autohidesScrollers = true
+        sv.scrollerStyle = .overlay
+        sv.usesPredominantAxisScrolling = true
+        sv.verticalScrollElasticity = .allowed
+        sv.horizontalScrollElasticity = .none
         return sv
     }()
 
@@ -594,7 +609,7 @@ final class LyricsViewController: NSViewController {
             titleLabel.stringValue = t
             artistLabel.stringValue = a
             headerTrackLabel.stringValue = cur.map { "\($0.title) — \($0.artist)" } ?? ""
-            if let url = cur?.coverDataURL, let img = Self.image(fromDataURL: url) {
+            if let url = cur?.coverDataURL, let img = CoverImageCache.image(fromDataURL: url) {
                 artworkView.image = img
                 artworkView.contentTintColor = nil
                 artworkFallbackView.isHidden = true
@@ -613,39 +628,63 @@ final class LyricsViewController: NSViewController {
     }
 
     private func renderPlaybackState(_ state: PlaybackState) {
-        let imgName = state.isPlaying ? "pause.fill" : "play.fill"
-        playPauseButton.image = NSImage(systemSymbolName: imgName, accessibilityDescription: state.isPlaying ? "Pause" : "Play")
-        playPauseButton.toolTip = state.isPlaying ? "Pause" : "Play"
-        shuffleButton.contentTintColor = state.isShuffle ? NSColor.controlAccentColor : NSColor.secondaryLabelColor
-        shuffleButton.toolTip = state.isShuffle ? "Shuffle on" : "Shuffle off"
-        switch state.repeatMode {
-        case .off:
-            repeatButton.image = NSImage(systemSymbolName: "repeat", accessibilityDescription: "Repeat off")
-            repeatButton.contentTintColor = .secondaryLabelColor
-            repeatButton.toolTip = "Repeat off"
-        case .all:
-            repeatButton.image = NSImage(systemSymbolName: "repeat", accessibilityDescription: "Repeat all")
-            repeatButton.contentTintColor = .controlAccentColor
-            repeatButton.toolTip = "Repeat all"
-        case .one:
-            repeatButton.image = NSImage(systemSymbolName: "repeat.1", accessibilityDescription: "Repeat one")
-            repeatButton.contentTintColor = .controlAccentColor
-            repeatButton.toolTip = "Repeat one"
+        // Diff-gated: avoid NSImage creation + attributed string churn every 0.1s
+        if state.isPlaying != lastLyricsIsPlaying {
+            lastLyricsIsPlaying = state.isPlaying
+            let imgName = state.isPlaying ? "pause.fill" : "play.fill"
+            playPauseButton.image = NSImage(systemSymbolName: imgName, accessibilityDescription: state.isPlaying ? "Pause" : "Play")
+            playPauseButton.toolTip = state.isPlaying ? "Pause" : "Play"
         }
-        if abs(volumeSlider.doubleValue - state.volume) > 0.01 {
-            volumeSlider.doubleValue = state.volume
+        if state.isShuffle != lastLyricsShuffle {
+            lastLyricsShuffle = state.isShuffle
+            shuffleButton.contentTintColor = state.isShuffle ? NSColor.controlAccentColor : NSColor.secondaryLabelColor
+            shuffleButton.toolTip = state.isShuffle ? "Shuffle on" : "Shuffle off"
         }
-        let volIcon = state.volume == 0 ? "speaker.slash.fill" : (state.volume < 0.5 ? "speaker.wave.1.fill" : "speaker.wave.2.fill")
-        volumeIcon.image = NSImage(systemSymbolName: volIcon, accessibilityDescription: nil)
+        if state.repeatMode != lastLyricsRepeat {
+            lastLyricsRepeat = state.repeatMode
+            switch state.repeatMode {
+            case .off:
+                repeatButton.image = NSImage(systemSymbolName: "repeat", accessibilityDescription: "Repeat off")
+                repeatButton.contentTintColor = .secondaryLabelColor
+                repeatButton.toolTip = "Repeat off"
+            case .all:
+                repeatButton.image = NSImage(systemSymbolName: "repeat", accessibilityDescription: "Repeat all")
+                repeatButton.contentTintColor = .controlAccentColor
+                repeatButton.toolTip = "Repeat all"
+            case .one:
+                repeatButton.image = NSImage(systemSymbolName: "repeat.1", accessibilityDescription: "Repeat one")
+                repeatButton.contentTintColor = .controlAccentColor
+                repeatButton.toolTip = "Repeat one"
+            }
+        }
+        if abs(state.volume - lastLyricsVolume) > 0.005 {
+            lastLyricsVolume = state.volume
+            if abs(volumeSlider.doubleValue - state.volume) > 0.01 {
+                volumeSlider.doubleValue = state.volume
+            }
+            let volIcon = state.volume == 0 ? "speaker.slash.fill" : (state.volume < 0.5 ? "speaker.wave.1.fill" : "speaker.wave.2.fill")
+            volumeIcon.image = NSImage(systemSymbolName: volIcon, accessibilityDescription: nil)
+        }
         let isTracking = progressSlider.cell?.isHighlighted == true
         if !isTracking {
-            let dur = state.duration
-            progressSlider.maxValue = dur > 0 ? dur : 1
+            if state.duration != lastLyricsProgressDuration {
+                lastLyricsProgressDuration = state.duration
+                let dur = state.duration
+                progressSlider.maxValue = dur > 0 ? dur : 1
+                progressSlider.isEnabled = dur > 0 && engine.currentTrack != nil
+                let newDur = dur > 0 ? Self.formatDuration(dur) : "—:—"
+                if newDur != lastLyricsDuration {
+                    lastLyricsDuration = newDur
+                    durationLabel.stringValue = newDur
+                }
+            }
             progressSlider.doubleValue = state.currentTime
-            progressSlider.isEnabled = dur > 0 && engine.currentTrack != nil
         }
-        elapsedLabel.stringValue = Self.formatDuration(state.currentTime)
-        durationLabel.stringValue = state.duration > 0 ? Self.formatDuration(state.duration) : "—:—"
+        let newElapsed = Self.formatDuration(state.currentTime)
+        if newElapsed != lastLyricsElapsed {
+            lastLyricsElapsed = newElapsed
+            elapsedLabel.stringValue = newElapsed
+        }
     }
 
     // MARK: Lyrics loading
@@ -749,16 +788,37 @@ final class LyricsViewController: NSViewController {
     }
 
     private func updateWordProgresses(for lineIndex: Int, currentTime: Double) {
+        // Only the active line animates karaoke; inactive lines are reset once on switch,
+        // not every 100ms. Diff against last progresses to skip redundant attributedString churn.
         guard lyrics.indices.contains(lineIndex) else {
-            for case let lv as LyricLineView in stackView.arrangedSubviews { lv.updateWordProgresses([]) }
+            if lastWordActiveIndex >= 0, stackView.arrangedSubviews.indices.contains(lastWordActiveIndex),
+               let prev = stackView.arrangedSubviews[lastWordActiveIndex] as? LyricLineView {
+                prev.updateWordProgresses([])
+            }
+            lastWordActiveIndex = -1
+            lastWordProgresses = []
             return
         }
         let dur = engine.state.duration
         let progresses = LyricSynchronizer.wordProgresses(lyrics: lyrics, lineIndex: lineIndex, currentTime: currentTime, audioDuration: dur > 0 ? dur : nil)
-        for (idx, view) in stackView.arrangedSubviews.enumerated() {
-            guard let lv = view as? LyricLineView else { continue }
-            if idx == lineIndex { lv.updateWordProgresses(progresses) } else { lv.updateWordProgresses([]) }
+        let eps = 0.015
+        let sameLine = lineIndex == lastWordActiveIndex && lastWordProgresses.count == progresses.count
+        if sameLine {
+            var changed = false
+            for (a, b) in zip(lastWordProgresses, progresses) where abs(a - b) > eps { changed = true; break }
+            if !changed { return }
         }
+        if lastWordActiveIndex != lineIndex, lastWordActiveIndex >= 0,
+           stackView.arrangedSubviews.indices.contains(lastWordActiveIndex),
+           let prev = stackView.arrangedSubviews[lastWordActiveIndex] as? LyricLineView {
+            prev.updateWordProgresses([])
+        }
+        if stackView.arrangedSubviews.indices.contains(lineIndex),
+           let lv = stackView.arrangedSubviews[lineIndex] as? LyricLineView {
+            lv.updateWordProgresses(progresses)
+        }
+        lastWordActiveIndex = lineIndex
+        lastWordProgresses = progresses
     }
 
     private func centerActiveLine(animated: Bool) {
@@ -834,6 +894,8 @@ final class LyricsViewController: NSViewController {
     func open() {
         isLyricsActive = true
         activeIndex = -1
+        lastWordActiveIndex = -99
+        lastWordProgresses = []
         manualScrollUntil = 0
         if let cur = engine.currentTrack {
             let t = cur.title.isEmpty ? (cur.path as NSString).lastPathComponent : cur.title
@@ -841,7 +903,7 @@ final class LyricsViewController: NSViewController {
             titleLabel.stringValue = t
             artistLabel.stringValue = a
             headerTrackLabel.stringValue = "\(cur.title) — \(cur.artist)"
-            if let url = cur.coverDataURL, let img = Self.image(fromDataURL: url) {
+            if let url = cur.coverDataURL, let img = CoverImageCache.image(fromDataURL: url) {
                 artworkView.image = img
                 artworkView.contentTintColor = nil
                 artworkFallbackView.isHidden = true
@@ -885,6 +947,8 @@ final class LyricsViewController: NSViewController {
         isLyricsActive = false
         isAutoScrolling = false
         lastCenteredIndex = nil
+        lastWordActiveIndex = -99
+        lastWordProgresses = []
         if view.window == nil {
             view.isHidden = true
             view.alphaValue = 1
@@ -919,10 +983,7 @@ final class LyricsViewController: NSViewController {
     deinit { cancellables.removeAll() }
 
     private static func image(fromDataURL url: String) -> NSImage? {
-        guard let comma = url.firstIndex(of: ",") else { return nil }
-        let b64 = String(url[url.index(after: comma)...])
-        guard let data = Data(base64Encoded: b64) else { return nil }
-        return NSImage(data: data)
+        CoverImageCache.image(fromDataURL: url)
     }
 
     private static func formatDuration(_ secs: Double) -> String {

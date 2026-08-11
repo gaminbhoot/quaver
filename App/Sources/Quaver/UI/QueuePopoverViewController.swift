@@ -16,6 +16,10 @@ final class QueuePopoverViewController: NSViewController {
     private let engine: PlaybackEngine
     private var library: [TrackMetadata]
     private var cancellables = Set<AnyCancellable>()
+    private var lastRenderedQueue: [Int] = []
+    private var lastRenderedCurrent: Int = -99
+    private var lastRenderedPlaying: Bool = false
+    private var isUserScrolling = false
 
     // MARK: UI
     private let headerTitle: NSTextField = {
@@ -39,12 +43,16 @@ final class QueuePopoverViewController: NSViewController {
         tv.allowsMultipleSelection = false
         tv.backgroundColor = .clear
         tv.rowHeight = 44
-        tv.intercellSpacing = NSSize(width: 0, height: 1)
+        tv.intercellSpacing = NSSize(width: 0, height: 0)
         tv.selectionHighlightStyle = .regular
+        tv.usesAutomaticRowHeights = false
+        tv.columnAutoresizingStyle = .uniformColumnAutoresizingStyle
+        tv.focusRingType = .none
         if #available(macOS 11.0, *) { tv.style = .plain }
         let col = NSTableColumn(identifier: NSUserInterfaceItemIdentifier("queueColumn"))
         col.isEditable = false
         col.resizingMask = .autoresizingMask
+        col.width = 360
         tv.addTableColumn(col)
         return tv
     }()
@@ -56,6 +64,9 @@ final class QueuePopoverViewController: NSViewController {
         sv.drawsBackground = false
         sv.borderType = .noBorder
         sv.autohidesScrollers = true
+        sv.scrollerStyle = .overlay
+        sv.usesPredominantAxisScrolling = true
+        sv.verticalScrollElasticity = .allowed
         return sv
     }()
     private let emptyLabel: NSTextField = {
@@ -109,7 +120,7 @@ final class QueuePopoverViewController: NSViewController {
         super.viewWillAppear()
         reload()
     }
-    deinit { cancellables.forEach { $0.cancel() } }
+    deinit { cancellables.forEach { $0.cancel() }; NotificationCenter.default.removeObserver(self) }
 
     // MARK: Public API
     func updateLibrary(_ tracks: [TrackMetadata]) {
@@ -117,11 +128,13 @@ final class QueuePopoverViewController: NSViewController {
         reload()
     }
     func reload() {
-        // Validate queue indices against current library before render
+        lastRenderedQueue = engine.queueOrder
+        lastRenderedCurrent = engine.state.currentTrackIndex
+        lastRenderedPlaying = engine.state.isPlaying
         tableView.reloadData()
         updateEmptyState()
         updateCount()
-        highlightCurrent()
+        highlightCurrent(force: true)
     }
     var isEmpty: Bool { engine.queueOrder.isEmpty || library.isEmpty }
     var numberOfRows: Int { max(0, min(engine.queueOrder.count, library.count == 0 ? 0 : engine.queueOrder.count)) }
@@ -175,18 +188,53 @@ final class QueuePopoverViewController: NSViewController {
         tableView.registerForDraggedTypes([dragUTI])
         tableView.setDraggingSourceOperationMask(.move, forLocal: true)
         tableView.allowsColumnReordering = false
+        // Track live scrolling so we don't yank the list while the user drags the scroller.
+        NotificationCenter.default.addObserver(self, selector: #selector(scrollWillStart), name: NSScrollView.willStartLiveScrollNotification, object: scrollView)
+        NotificationCenter.default.addObserver(self, selector: #selector(scrollDidEnd), name: NSScrollView.didEndLiveScrollNotification, object: scrollView)
     }
+    @objc private func scrollWillStart() { isUserScrolling = true }
+    @objc private func scrollDidEnd() { isUserScrolling = false; // resync highlight after user releases
+        highlightCurrent(force: false) }
     private func bindEngine() {
+        // Only react to queue/current/playing — ignore 10Hz currentTime/duration/volume ticks
+        // which would otherwise reloadData and fight the scrollView's tracking loop (jitter).
         engine.statePublisher
+            .removeDuplicates { a, b in
+                a.queueOrder == b.queueOrder && a.currentTrackIndex == b.currentTrackIndex && a.isPlaying == b.isPlaying
+            }
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] (_: PlaybackState) in
+            .sink { [weak self] state in
                 guard let self else { return }
-                self.tableView.reloadData()
-                self.updateEmptyState()
-                self.updateCount()
-                self.highlightCurrent()
+                let queue = state.queueOrder
+                let cur = state.currentTrackIndex
+                let playing = state.isPlaying
+                let queueChanged = queue != self.lastRenderedQueue
+                let curChanged = cur != self.lastRenderedCurrent
+                let playingChanged = playing != self.lastRenderedPlaying
+                self.lastRenderedQueue = queue
+                self.lastRenderedCurrent = cur
+                self.lastRenderedPlaying = playing
+                if queueChanged {
+                    self.tableView.reloadData()
+                    self.updateEmptyState()
+                    self.updateCount()
+                } else if curChanged || playingChanged {
+                    self.tableView.reloadData()
+                }
+                if curChanged {
+                    self.highlightCurrent(force: false)
+                } else if playingChanged {
+                    self.updateVisibleIndicators()
+                }
             }
             .store(in: &cancellables)
+    }
+    private func updateVisibleIndicators() {
+        // Refresh playing/paused glyph without full reload if possible; reload visible rows only.
+        let vis = tableView.rows(in: tableView.visibleRect)
+        guard vis.length > 0 else { return }
+        // Lightweight: reload only visible rows to update waveform/pause icon.
+        tableView.reloadData(forRowIndexes: IndexSet(integersIn: vis.location..<(vis.location+vis.length)), columnIndexes: IndexSet(integer: 0))
     }
     private func updateCount() {
         let n = engine.queueOrder.count
@@ -214,15 +262,24 @@ final class QueuePopoverViewController: NSViewController {
             }
         }
     }
-    private func highlightCurrent() {
+    private func highlightCurrent(force: Bool = false) {
         let cur = engine.state.currentTrackIndex
         guard cur >= 0, !engine.queueOrder.isEmpty else { return }
-        if let pos = engine.queueOrder.firstIndex(of: cur) {
-            // Don't steal selection if user is interacting; just ensure visible
-            tableView.scrollRowToVisible(pos)
-            // Select current row to show highlight (transient, not persistent edit)
-            if tableView.selectedRow != pos {
-                tableView.selectRowIndexes(IndexSet(integer: pos), byExtendingSelection: false)
+        guard let pos = engine.queueOrder.firstIndex(of: cur) else { return }
+        // Never fight a live drag/scroll — defer until scrollDidEnd.
+        if isUserScrolling && !force { return }
+        // Avoid redundant selection which triggers extra layout.
+        if tableView.selectedRow != pos {
+            tableView.selectRowIndexes(IndexSet(integer: pos), byExtendingSelection: false)
+        }
+        // Only auto-scroll when forced (initial reload) or when not already visible.
+        // Checking visibleRect avoids yanking the list on every play/pause.
+        let vis = tableView.rows(in: tableView.visibleRect)
+        let isAlreadyVisible = vis.location <= pos && pos < vis.location + vis.length
+        if force || !isAlreadyVisible {
+            NSAnimationContext.runAnimationGroup { ctx in
+                ctx.duration = 0 // instant, no competing animation
+                tableView.scrollRowToVisible(pos)
             }
         }
     }
@@ -353,10 +410,7 @@ extension QueuePopoverViewController: NSTableViewDataSource, NSTableViewDelegate
         return true
     }
     private static func image(fromDataURL url: String) -> NSImage? {
-        guard let comma = url.firstIndex(of: ",") else { return nil }
-        let b64 = String(url[url.index(after: comma)...])
-        guard let data = Data(base64Encoded: b64) else { return nil }
-        return NSImage(data: data)
+        CoverImageCache.image(fromDataURL: url)
     }
 }
 

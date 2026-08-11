@@ -15,6 +15,8 @@ final class NowPlayingInfoController {
     private let engine: PlaybackEngine
     private var cancellables = Set<AnyCancellable>()
     private var commandTargets: [Any] = []
+    private var lastNPKey: String?
+    private var lastNPArtwork: Any?
 
     init(engine: PlaybackEngine) {
         self.engine = engine
@@ -53,6 +55,7 @@ final class NowPlayingInfoController {
     private func updateNowPlayingInfo() {
         var info: [String: Any] = [:]
         let state = engine.state
+        let curKey = engine.currentTrack?.key
 
         if let track = engine.currentTrack {
             let title = track.title.isEmpty ? (track.path as NSString).lastPathComponent : track.title
@@ -62,18 +65,30 @@ final class NowPlayingInfoController {
             if !track.album.isEmpty {
                 info[MPMediaItemPropertyAlbumTitle] = track.album
             }
-            // Artwork from data URL (best-effort, non-blocking)
-            if let dataURL = track.coverDataURL, let image = Self.image(fromDataURL: dataURL) {
-                if #available(macOS 11.0, *) {
-                    let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
-                    info[MPMediaItemPropertyArtwork] = artwork
+            // Artwork — cached: base64 decode + MPMediaItemArtwork only when track changes
+            if let dataURL = track.coverDataURL {
+                if curKey == lastNPKey, let art = lastNPArtwork {
+                    info[MPMediaItemPropertyArtwork] = art
+                } else if let image = CoverImageCache.image(fromDataURL: dataURL) {
+                    if #available(macOS 11.0, *) {
+                        let artwork = MPMediaItemArtwork(boundsSize: image.size) { _ in image }
+                        info[MPMediaItemPropertyArtwork] = artwork
+                        lastNPArtwork = artwork
+                    } else {
+                        info[MPMediaItemPropertyArtwork] = image
+                        lastNPArtwork = image
+                    }
                 } else {
-                    // Pre-11 fallback: NSImage directly (MediaPlayer tolerates it)
-                    info[MPMediaItemPropertyArtwork] = image
+                    lastNPArtwork = nil
                 }
+            } else {
+                lastNPArtwork = nil
             }
+            lastNPKey = curKey
         } else {
             info[MPMediaItemPropertyTitle] = "Quaver"
+            lastNPKey = nil
+            lastNPArtwork = nil
         }
 
         let dur = state.duration
@@ -160,9 +175,6 @@ final class NowPlayingInfoController {
     // MARK: - Helpers
 
     private static func image(fromDataURL url: String) -> NSImage? {
-        guard let comma = url.firstIndex(of: ",") else { return nil }
-        let b64 = String(url[url.index(after: comma)...])
-        guard let data = Data(base64Encoded: b64) else { return nil }
-        return NSImage(data: data)
+        CoverImageCache.image(fromDataURL: url)
     }
 }

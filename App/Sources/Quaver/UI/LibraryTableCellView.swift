@@ -78,8 +78,8 @@ final class LibraryTableCellView: NSTableCellView {
         titleLabel.stringValue = track.title.isEmpty ? (track.path as NSString).lastPathComponent : track.title
         artistLabel.stringValue = track.artist.isEmpty ? "Unknown Artist" : track.artist
 
-        // Artwork: decode base64 data URL if present, otherwise placeholder
-        if let dataURL = track.coverDataURL, let image = Self.image(fromDataURL: dataURL) {
+        // Artwork: cached base64 — scrolling 483 rows decodes once, then O(1)
+        if let dataURL = track.coverDataURL, let image = CoverImageCache.image(fromDataURL: dataURL) {
             artworkView.image = image
             artworkView.contentTintColor = nil
         } else {
@@ -90,11 +90,7 @@ final class LibraryTableCellView: NSTableCellView {
     }
 
     private static func image(fromDataURL url: String) -> NSImage? {
-        // data:image/jpeg;base64,... or data:image/png;base64,
-        guard let comma = url.firstIndex(of: "," ) else { return nil }
-        let b64 = String(url[url.index(after: comma)...])
-        guard let data = Data(base64Encoded: b64) else { return nil }
-        return NSImage(data: data)
+        CoverImageCache.image(fromDataURL: url)
     }
 
     override var backgroundStyle: NSView.BackgroundStyle {
