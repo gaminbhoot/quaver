@@ -103,7 +103,7 @@ enum QuaverMenuBuilder {
         windowItem.submenu = windowMenu
         windowItem.title = "Window"
         // Tell AppKit this is the Windows menu so it auto-populates window list.
-        NSApp.windowsMenu = windowMenu
+        NSApp?.windowsMenu = windowMenu
 
         // MARK: Help
         let helpItem = NSMenuItem()
@@ -112,7 +112,7 @@ enum QuaverMenuBuilder {
         helpMenu.addItem(NSMenuItem(title: "Quaver Help", action: #selector(QuaverApp.showHelp(_:)), keyEquivalent: "?"))
         helpItem.submenu = helpMenu
         helpItem.title = "Help"
-        NSApp.helpMenu = helpMenu
+        NSApp?.helpMenu = helpMenu
 
         return mainMenu
     }

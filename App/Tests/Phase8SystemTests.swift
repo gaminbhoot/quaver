@@ -173,12 +173,13 @@ func testMenuStructure() {
     systemCheck(!foundWeb, "menu has no WKWebView")
 
     // NSApp integration — setting mainMenu should not crash
-    let prev = NSApp.mainMenu
-    NSApp.mainMenu = menu
-    systemCheck(NSApp.mainMenu === menu, "NSApp.mainMenu accepts builder menu")
+    guard let app = NSApp else { print("SKIP: no NSApp for menu test"); return }
+    let prev = app.mainMenu
+    app.mainMenu = menu
+    systemCheck(app.mainMenu === menu, "NSApp.mainMenu accepts builder menu")
     // Restore but keep valid
-    if let p = prev { NSApp.mainMenu = p }
-    else { NSApp.mainMenu = menu }
+    if let p = prev { app.mainMenu = p }
+    else { app.mainMenu = menu }
 }
 
 // MARK: - 2. AppDelegate ↔ engine delegation

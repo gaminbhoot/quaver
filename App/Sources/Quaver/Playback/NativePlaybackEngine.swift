@@ -46,6 +46,8 @@ final class NativePlaybackEngine: PlaybackEngine {
     private var eofObserver: NSObjectProtocol?
     private var playOrder: [Int] = []
     private var hasFinishedCurrentItem = false
+    private var fallbackInFlight = false
+    private var fallbackTempPaths: [String] = []
 
     // MARK: Init
 
@@ -76,13 +78,21 @@ final class NativePlaybackEngine: PlaybackEngine {
     // MARK: PlaybackEngine contract
 
     func play(trackAt index: Int) {
-        guard library.indices.contains(index) else { return }
+        guard library.indices.contains(index) else {
+            NSLog("[Quaver] play(trackAt:) out of bounds \(index) libCount=\(library.count)")
+            return
+        }
+        let t = library[index]
+        NSLog("[Quaver] play(trackAt:) \(index) \(t.path) fmt=\(t.format) durMeta=\(t.duration)")
         hasFinishedCurrentItem = false
         loadItem(at: index, autoPlay: true)
     }
 
     func play(trackWithKey key: String) {
-        guard let idx = library.firstIndex(where: { $0.key == key }) else { return }
+        guard let idx = library.firstIndex(where: { $0.key == key }) else {
+            NSLog("[Quaver] play(trackWithKey:) miss \(key)")
+            return
+        }
         play(trackAt: idx)
     }
 
@@ -155,6 +165,7 @@ final class NativePlaybackEngine: PlaybackEngine {
     private func loadItem(at index: Int, autoPlay: Bool) {
         let track = library[index]
         let url = URL(fileURLWithPath: track.path)
+        NSLog("[Quaver] loadItem idx=\(index) url=\(url.path) exists=\(FileManager.default.fileExists(atPath: track.path))")
         tearDownItemObservations()
         if let o = eofObserver { NotificationCenter.default.removeObserver(o); eofObserver = nil }
         hasFinishedCurrentItem = false
@@ -170,10 +181,14 @@ final class NativePlaybackEngine: PlaybackEngine {
         ) { [weak self] _ in Task { @MainActor in self?.handleEOF() } }
         observe(item: item)
         player.replaceCurrentItem(with: item)
+        NSLog("[Quaver] replaceCurrentItem status=\(item.status.rawValue) autoPlay=\(autoPlay)")
         if autoPlay {
             if item.status == .readyToPlay {
                 player.play()
                 updateState { $0.isPlaying = true }
+                NSLog("[Quaver] immediate play (readyToPlay)")
+            } else {
+                NSLog("[Quaver] deferred play awaiting readyToPlay (status \(item.status.rawValue))")
             }
         }
     }
@@ -195,6 +210,7 @@ final class NativePlaybackEngine: PlaybackEngine {
     private func handleStatusChange(_ item: AVPlayerItem) {
         switch item.status {
         case .readyToPlay:
+            fallbackInFlight = false
             let d = resolvedDuration(for: item)
             updateState { $0.duration = d }
             if !hasFinishedCurrentItem && subject.value.currentTrackIndex >= 0, player.rate == 0 {
@@ -211,10 +227,63 @@ final class NativePlaybackEngine: PlaybackEngine {
                 }
             }
         case .failed:
-            updateState { $0.isPlaying = false; $0.duration = 0 }
+            // AVPlayer couldn't handle the source (e.g. obscure FLAC/ALAC variant).
+            // Transparent fallback via Symphonia → temp WAV → AVPlayer, same state/surfaces.
+            if fallbackInFlight { fallbackInFlight = false; updateState { $0.isPlaying = false; $0.duration = 0 }; return }
+            let idx = subject.value.currentTrackIndex
+            guard library.indices.contains(idx) else { updateState { $0.isPlaying = false; $0.duration = 0 }; return }
+            let track = library[idx]
+            let err = item.error?.localizedDescription ?? "unknown"
+            NSLog("[Quaver] AVPlayer failed for \(track.path) (\(track.format)): \(err) — trying Symphonia fallback")
+            attemptFallback(for: track, at: idx)
         case .unknown: break
         @unknown default: break
         }
+    }
+
+    private func attemptFallback(for track: TrackMetadata, at index: Int) {
+        guard !fallbackInFlight else { return }
+        fallbackInFlight = true
+        // Heavy decode off main thread — keep UI responsive for 483-row list.
+        DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+            let tmp = QuaverCore.decodeToTempWAV(inputPath: track.path)
+            Task { @MainActor in
+                guard let self else { return }
+                guard let wavPath = tmp, !wavPath.isEmpty else {
+                    self.fallbackInFlight = false
+                    self.updateState { $0.isPlaying = false; $0.duration = 0 }
+                    NSLog("[Quaver] Symphonia fallback failed for \(track.path)")
+                    return
+                }
+                self.fallbackTempPaths.append(wavPath)
+                self.loadFallbackItem(wavPath: wavPath, originalIndex: index)
+            }
+        }
+    }
+
+    private func loadFallbackItem(wavPath: String, originalIndex: Int) {
+        let url = URL(fileURLWithPath: wavPath)
+        tearDownItemObservations()
+        if let o = eofObserver { NotificationCenter.default.removeObserver(o); eofObserver = nil }
+        hasFinishedCurrentItem = false
+        let item = AVPlayerItem(url: url)
+        // Keep the same track index so UI/lyrics stay bound to the original TrackMetadata.
+        updateState { s in
+            s.currentTrackIndex = originalIndex
+            s.currentTime = 0
+            s.duration = 0
+            s.isPlaying = false
+        }
+        eofObserver = NotificationCenter.default.addObserver(
+            forName: .AVPlayerItemDidPlayToEndTime, object: item, queue: .main
+        ) { [weak self] _ in Task { @MainActor in self?.handleEOF() } }
+        observe(item: item)
+        player.replaceCurrentItem(with: item)
+        if item.status == .readyToPlay {
+            player.play()
+            updateState { $0.isPlaying = true }
+        }
+        NSLog("[Quaver] fallback loaded \(wavPath) for index \(originalIndex)")
     }
 
     private func handleDurationChange(_ item: AVPlayerItem) {

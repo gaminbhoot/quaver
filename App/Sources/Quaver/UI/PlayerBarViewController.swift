@@ -222,12 +222,16 @@ final class PlayerBarViewController: NSViewController {
     override func loadView() {
         let v = NSView()
         v.wantsLayer = true
-        // Pill is an independent floating capsule — its background is native
-        // Liquid Glass (withinWindow) over the coherent dark library, not a
-        // full-width bar. Host is clear so the capsule glass shows with depth.
-        v.layer?.backgroundColor = NSColor.clear.cgColor
+        // Pill fallback: solid capsule behind glass so it's never invisible if glass
+        // fails to render or blends too close to windowBackgroundColor. Glass sits
+        // on top (installPillGlass below) and provides blur — this is just the safety
+        // base. Shadow lives on the RootSplit barView host, not here.
+        v.layer?.backgroundColor = NSColor.windowBackgroundColor.withAlphaComponent(0.96).cgColor
         v.layer?.cornerRadius = 34
         v.layer?.masksToBounds = false
+        // Subtle stroke so pill reads against the same windowBackgroundColor behind it
+        v.layer?.borderColor = NSColor.white.withAlphaComponent(0.08).cgColor
+        v.layer?.borderWidth = 0.5
         self.view = v
     }
 

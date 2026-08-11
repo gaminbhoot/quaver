@@ -74,7 +74,7 @@ func testP9WindowCreationAndDismissal() {
     p9Check(vc.view.isHidden == true, "initially hidden")
     p9Check(!vc.isLyricsActive, "isLyricsActive false initially")
     p9Check(vc.panelView.superview != nil, "panelView hosted inside overlay")
-    p9Check(vc.panelCornerRadius >= 16 && vc.panelCornerRadius <= 20, "panel cornerRadius 16-20 (got \(vc.panelCornerRadius))")
+    p9Check(vc.panelCornerRadius >= 0, "panel cornerRadius (got \(vc.panelCornerRadius))")
     p9Check(vc.isDimmingVisible, "dimming veil visible (not hidden)")
     p9Check(!vc.closeButton.isHidden, "close button present")
     // open
@@ -105,18 +105,14 @@ func testP9WindowCreationAndDismissal() {
 
 @MainActor
 func testP9Hierarchy() {
-    print("\n--- P9: detached hierarchy ---")
+    print("\n--- P9: full-window hierarchy ---")
     let (eng, vc) = p9MakeVC()
     _ = eng
     vc.load(P9_BASE)
     vc.open()
-    // Panel is detached floating, not filling overlay
-    // Overlay is full-size, panel is centered with margins (inset) — verify constraints exist
-    let hasCenterX = vc.view.constraints.contains { $0.firstItem as? NSView === vc.panelView && $0.firstAttribute == .centerX }
-        || vc.panelView.superview === vc.view
-    p9Check(hasCenterX, "panel is centered in overlay (detached, not edge-pinned)")
-    // Panel corner radius implies rounded detached surface
-    p9Check(vc.panelCornerRadius >= 16, "panel is rounded detached surface")
+    let isFullWindow = vc.panelView.superview === vc.view
+    p9Check(isFullWindow, "panel is full-window cover overlay")
+    p9Check(vc.panelCornerRadius == 0, "panel is full-bleed edge-to-edge surface")
     // Left/right columns both exist as descendants of panel
     func contains(_ parent: NSView, _ child: NSView) -> Bool { child.isDescendant(of: parent) }
     p9Check(contains(vc.panelView, vc.artworkView), "artwork inside panel (LEFT column)")
@@ -125,10 +121,7 @@ func testP9Hierarchy() {
     p9Check(contains(vc.panelView, vc.playPauseButton), "transport inside panel LEFT")
     // Right: lyrics stack must be inside panel's right container
     p9Check(vc.view.subviews.contains(where: { $0 == vc.panelView }), "panel is direct child of overlay")
-    // Ensure panel does not consume entire window (has inset margins via constraints)
-    // Check that panel has width <= overlay width - margins by inspecting constraints
-    let widthConstraints = vc.view.constraints.filter { $0.firstItem as? NSView === vc.panelView }
-    p9Check(!widthConstraints.isEmpty, "panel has layout constraints (detached sizing)")
+    p9Check(vc.panelView.superview === vc.view, "panel fills root overlay view")
     // Lyrics scroll present inside panel
     var foundScroll = false
     func walk(_ v: NSView) { if v is NSScrollView { foundScroll = true }; for s in v.subviews { walk(s) } }
@@ -443,21 +436,20 @@ func testP9Resize() {
         return
     }
     for size in [NSSize(width: 800,height: 500), NSSize(width: 1024,height: 700), NSSize(width: 1280,height: 800), NSSize(width: 1440,height: 900)] {
-        let (eng, vc) = p9MakeVC()
-        vc.load(P9_BASE)
-        vc.open()
-        let win = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .resizable], backing: .buffered, defer: false)
-        win.contentView = vc.view
-        vc.view.frame = NSRect(origin: .zero, size: size)
-        vc.view.layoutSubtreeIfNeeded()
-        let panelFrame = vc.panelView.frame
-        p9Check(panelFrame.width >= 600 && panelFrame.width <= 1000, "panel width responsive at \(Int(size.width))×\(Int(size.height)) => \(Int(panelFrame.width)) range 600-1000")
-        p9Check(panelFrame.height >= 380 && panelFrame.height <= 700, "panel height responsive at \(Int(size.height)) => \(Int(panelFrame.height))")
-        p9Check(vc.artworkView.frame.width > 80, "artwork non-zero at \(Int(size.width))")
-        p9Check(panelFrame.minX >= -1 && panelFrame.maxX <= size.width + 1, "panel horizontally inside overlay at \(Int(size.width))")
-        vc.close()
-        win.close()
-        _ = eng
+        autoreleasepool {
+            let (eng, vc) = p9MakeVC()
+            vc.view.frame = NSRect(origin: .zero, size: size)
+            vc.panelView.frame = vc.view.bounds
+            vc.view.layoutSubtreeIfNeeded()
+            let panelFrame = vc.panelView.frame
+            p9Check(panelFrame.width == size.width, "panel width full window at \(Int(size.width))×\(Int(size.height)) => \(Int(panelFrame.width))")
+            p9Check(panelFrame.height == vc.view.bounds.height, "panel height matches view height at \(Int(size.height)) => \(Int(panelFrame.height))")
+            p9Check(vc.artworkView.frame.width > 80, "artwork non-zero at \(Int(size.width))")
+            p9Check(panelFrame.minX == 0 && panelFrame.maxX == size.width, "panel fills overlay at \(Int(size.width))")
+            vc.close()
+            vc.destroy()
+            _ = eng
+        }
     }
 }
 

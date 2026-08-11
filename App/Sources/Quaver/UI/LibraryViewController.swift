@@ -280,16 +280,43 @@ final class LibraryViewController: NSViewController {
 
         tableView.dataSource = self
         tableView.delegate = self
+        // Primary: NSTableView target/doubleAction (AppKit standard)
         tableView.target = self
-        tableView.doubleAction = #selector(rowDoubleClicked)
+        tableView.doubleAction = #selector(rowDoubleClicked(_:))
+        tableView.action = #selector(rowClicked(_:))
+
+        // Fallback 1: explicit double-click gesture — fires even if target/doubleAction is
+        // swallowed by an intervening responder or cell text-field hit-test.
+        let dbl = NSClickGestureRecognizer(target: self, action: #selector(rowDoubleClicked(_:)))
+        dbl.numberOfClicksRequired = 2
+        dbl.buttonMask = 0x1
+        dbl.delaysPrimaryMouseButtonEvents = false
+        tableView.addGestureRecognizer(dbl)
+
+        // Fallback 2: key handling — Enter/Return to play selected row (also covers double-click miss)
+        tableView.allowsMultipleSelection = false
+
+        // Fallback 3: context menu Play — guarantees at least one path works without double-click
+        let menu = NSMenu()
+        let playItem = NSMenuItem(title: "Play", action: #selector(contextPlay), keyEquivalent: "")
+        playItem.target = self
+        menu.addItem(playItem)
+        tableView.menu = menu
 
         tableView.columnAutoresizingStyle = .firstColumnOnlyAutoresizingStyle
+        NSLog("[Quaver] setupTable wired doubleAction=\(String(describing: tableView.doubleAction)) target=\(String(describing: tableView.target)) gestureCount=\(tableView.gestureRecognizers.count)")
 
         scrollView.documentView = tableView
         // Underlap header so content scrolls underneath and shows through blur.
+        // Bottom inset keeps the last row above the detached floating pill
+        // (68 pill + 16 bottom gap + 12 breathing = 96) so 483 rows don't
+        // hide behind the miniplayer — no heavy redesign, just clearance.
         scrollView.automaticallyAdjustsContentInsets = false
-        scrollView.contentInsets = NSEdgeInsets(top: 72, left: 0, bottom: 0, right: 0)
-        scrollView.scrollerInsets = NSEdgeInsets(top: 72, left: 0, bottom: 0, right: 0)
+        let pillClearance: CGFloat = 96
+        scrollView.contentInsets = NSEdgeInsets(top: 72, left: 0, bottom: pillClearance, right: 0)
+        scrollView.scrollerInsets = NSEdgeInsets(top: 72, left: 0, bottom: pillClearance, right: 0)
+        // Keep clip view in sync after inset change (forces layout of inner table)
+        scrollView.contentView.needsLayout = true
 
         view.addSubview(scrollView)
         view.addSubview(loadingIndicator)
@@ -485,10 +512,75 @@ final class LibraryViewController: NSViewController {
         }
     }
 
-    @objc private func rowDoubleClicked() {
-        let row = tableView.clickedRow
-        guard row >= 0, visibleTracks.indices.contains(row) else { return }
-        delegate?.libraryDidSelectPlay(trackAt: row, inVisibleTracks: visibleTracks)
+    @objc private func rowDoubleClicked(_ sender: Any?) {
+        // Defensive: gesture vs table doubleAction both land here; also called from keyDown Enter
+        let clicked = tableView.clickedRow
+        let selected = tableView.selectedRow
+        let row = clicked >= 0 ? clicked : selected
+        let hasDelegate = delegate != nil
+        NSLog("[Quaver] rowDoubleClicked fired clicked=\(clicked) selected=\(selected) resolved=\(row) visible=\(visibleTracks.count) hasDelegate=\(hasDelegate) sender=\(String(describing: sender)) eventClicks=\(NSApp.currentEvent?.clickCount ?? -1)")
+        guard row >= 0, visibleTracks.indices.contains(row) else {
+            if visibleTracks.isEmpty { NSLog("[Quaver] rowDoubleClicked ignored — visibleTracks empty") }
+            else { NSLog("[Quaver] rowDoubleClicked ignored — row \(row) out of \(visibleTracks.count) (clicked \(clicked) sel \(selected))") }
+            NSSound.beep()
+            return
+        }
+        let track = visibleTracks[row]
+        // File existence check — catches stale library paths (moved/renamed folder)
+        let fmExists = FileManager.default.fileExists(atPath: track.path)
+        NSLog("[Quaver] dbl → \(track.title) path=\(track.path) exists=\(fmExists) fmt=\(track.format)")
+        if !fmExists {
+            NSLog("[Quaver] file missing at \(track.path) — will try engine anyway")
+        }
+        if let d = delegate {
+            d.libraryDidSelectPlay(trackAt: row, inVisibleTracks: visibleTracks)
+        } else {
+            NSLog("[Quaver] delegate nil — walking responder chain for RootSplit fallback")
+            var vc: NSViewController? = self.parent
+            var handled = false
+            while let cur = vc {
+                if let root = cur as? RootSplitViewController {
+                    root.libraryDidSelectPlay(trackAt: row, inVisibleTracks: visibleTracks)
+                    handled = true; break
+                }
+                vc = cur.parent
+            }
+            if !handled {
+                let info: [String: Any] = ["trackKey": track.key, "index": row, "visible": visibleTracks]
+                NotificationCenter.default.post(name: NSNotification.Name("QuaverPlayTrack"), object: nil, userInfo: info)
+                NSSound.beep()
+                NSLog("[Quaver] no RootSplit found — posted QuaverPlayTrack notification")
+            }
+        }
+        // Ensure selection stays in sync for Enter/double-click visual feedback
+        tableView.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+    }
+
+    @objc private func rowClicked(_ sender: Any?) {
+        // First click of a double arrives as single clickCount==1; second fires as 2 via doubleAction+gesture.
+        // If the system coalesces into action with clickCount 2, handle as double.
+        let clicks = NSApp.currentEvent?.clickCount ?? 0
+        if clicks == 2 {
+            rowDoubleClicked(sender)
+        }
+    }
+
+    override func keyDown(with event: NSEvent) {
+        // Enter / Return on selected row → play (keyboard power-user + diagnosis alias)
+        if event.keyCode == 36 || event.keyCode == 76 {
+            let sel = tableView.selectedRow
+            if visibleTracks.indices.contains(sel) {
+                NSLog("[Quaver] keyDown Enter → row \(sel)")
+                rowDoubleClicked(nil)
+                return
+            }
+        }
+        super.keyDown(with: event)
+    }
+
+    @objc private func contextPlay() {
+        NSLog("[Quaver] contextPlay menu")
+        rowDoubleClicked(nil)
     }
 
     @objc private func emptyAddFolderTapped() {

@@ -3,16 +3,19 @@ import Combine
 import QuartzCore
 
 // MARK: - LyricsViewController
-// Detached Apple Music-style lyrics panel. Pure AppKit, no WKWebView, no Timer.
-// Single source of truth: PlaybackEngine.currentTime → LyricSynchronizer → active line/word → UI.
-// Visual: detached rounded floating surface centered over library, LEFT = artwork + metadata + controls,
-// RIGHT = synchronized karaoke lyrics. Library remains visible behind panel via dim.
-// No second playback clock. Reacts to PlaybackEngine.statePublisher only.
+// Monochrome rebuild — no Liquid Glass on this page (user request).
+// Strict single-clock: PlaybackEngine.currentTime → LyricSynchronizer → active line/word.
+// Visual language lifted from monochrome web fullscreen:
+//  • Solid opaque windowBackgroundColor (no NSVisualEffectView/NSGlassEffectView)
+//  • Two-column editorial grid: LEFT media (artwork 280 + left-aligned meta + controls)
+//    RIGHT large lyrics (30pt active, ─0.6 kern, #F6F4EF on faint 0.08, like
+//    --lyplus-font-size-base clamp(34px,3vw,52px) / --lyplus-active-color)
+//  • No desktop bleed, no connected glass sheet — this overlay is a coherent dark surface.
 
 @MainActor
 final class LyricsViewController: NSViewController {
 
-    // MARK: Engine + State (preserved single-clock contracts)
+    // MARK: Engine + State (single-clock contracts preserved)
 
     private let engine: PlaybackEngine
     private(set) var lyrics: [LyricLine] = []
@@ -28,34 +31,31 @@ final class LyricsViewController: NSViewController {
 
     private let manualGrace: TimeInterval = 4.5
 
-    // MARK: - Overlay chrome
+    // MARK: Overlay chrome — solid, no glass (this page only)
 
     private let dimmingView: NSView = {
         let v = NSView()
         v.translatesAutoresizingMaskIntoConstraints = false
         v.wantsLayer = true
-        // Translucent dark veil that lets library remain recognizable behind panel.
-        // Not opaque black — Apple Music-like depth.
-        v.layer?.backgroundColor = NSColor.black.withAlphaComponent(0.38).cgColor
+        // True opaque — covers library completely, no blur, no desktop bleed.
+        v.layer?.backgroundColor = NSColor(srgbRed: 0.08, green: 0.08, blue: 0.08, alpha: 1.0).cgColor
+        v.layer?.isOpaque = true
         return v
     }()
 
-    // DETACHED PANEL — the floating rounded surface
+    // Full-window panel — coherent dark surface, not floating glass
     let panelView: NSView = {
         let v = NSView()
-        v.translatesAutoresizingMaskIntoConstraints = false
+        v.autoresizingMask = [.width, .height]
         v.wantsLayer = true
-        v.layer?.cornerRadius = 18
+        v.layer?.cornerRadius = 0
         v.layer?.masksToBounds = true
-        v.layer?.shadowColor = NSColor.black.cgColor
-        v.layer?.shadowOpacity = 0.34
-        v.layer?.shadowRadius = 28
-        v.layer?.shadowOffset = NSSize(width: 0, height: 12)
-        v.layer?.masksToBounds = false
+        v.layer?.backgroundColor = NSColor(srgbRed: 0.08, green: 0.08, blue: 0.08, alpha: 1.0).cgColor
+        v.layer?.isOpaque = true
         return v
     }()
 
-    private var panelGlassView: NSView?
+    private var panelGlassView: NSView? // kept for compat — stays nil (no glass on this page)
 
     private let panelBackgroundArtworkView: NSImageView = {
         let v = NSImageView()
@@ -63,23 +63,20 @@ final class LyricsViewController: NSViewController {
         v.imageScaling = .scaleAxesIndependently
         v.wantsLayer = true
         v.layer?.masksToBounds = true
-        v.alphaValue = 0.14
+        // Very faint texture behind solid — like monochrome's subtle backdrop, not a wallpaper
+        v.alphaValue = 0.06
         return v
     }()
 
-    // MARK: - LEFT COLUMN
+    // MARK: LEFT COLUMN — media like monochrome's .fullscreen-media-column
 
     let artworkView: NSImageView = {
         let v = NSImageView()
         v.translatesAutoresizingMaskIntoConstraints = false
         v.imageScaling = .scaleProportionallyUpOrDown
         v.wantsLayer = true
-        v.layer?.cornerRadius = 12
+        v.layer?.cornerRadius = 14
         v.layer?.masksToBounds = true
-        v.layer?.shadowColor = NSColor.black.cgColor
-        v.layer?.shadowOpacity = 0.22
-        v.layer?.shadowRadius = 10
-        v.layer?.shadowOffset = NSSize(width: 0, height: 4)
         v.image = NSImage(systemSymbolName: "music.note", accessibilityDescription: nil)
         v.contentTintColor = .secondaryLabelColor
         return v
@@ -90,7 +87,7 @@ final class LyricsViewController: NSViewController {
         v.translatesAutoresizingMaskIntoConstraints = false
         v.wantsLayer = true
         v.layer?.backgroundColor = NSColor.white.withAlphaComponent(0.06).cgColor
-        v.layer?.cornerRadius = 12
+        v.layer?.cornerRadius = 14
         v.isHidden = true
         return v
     }()
@@ -98,11 +95,11 @@ final class LyricsViewController: NSViewController {
     let titleLabel: NSTextField = {
         let l = NSTextField(labelWithString: "No track")
         l.translatesAutoresizingMaskIntoConstraints = false
-        l.font = .systemFont(ofSize: 16, weight: .semibold)
+        l.font = .systemFont(ofSize: 18, weight: .semibold)
         l.textColor = .labelColor
         l.lineBreakMode = .byTruncatingTail
         l.maximumNumberOfLines = 1
-        l.alignment = .center
+        l.alignment = .left
         return l
     }()
 
@@ -113,7 +110,7 @@ final class LyricsViewController: NSViewController {
         l.textColor = .secondaryLabelColor
         l.lineBreakMode = .byTruncatingTail
         l.maximumNumberOfLines = 1
-        l.alignment = .center
+        l.alignment = .left
         return l
     }()
 
@@ -143,7 +140,6 @@ final class LyricsViewController: NSViewController {
         return s
     }()
 
-    // Compact native transport — restrained, not giant
     let shuffleButton: NSButton = {
         let b = NSButton()
         b.translatesAutoresizingMaskIntoConstraints = false
@@ -223,7 +219,7 @@ final class LyricsViewController: NSViewController {
         return v
     }()
 
-    // MARK: - RIGHT COLUMN (lyrics)
+    // MARK: RIGHT COLUMN — large editorial lyrics
 
     private let scrollView: NSScrollView = {
         let sv = NSScrollView()
@@ -241,8 +237,9 @@ final class LyricsViewController: NSViewController {
         s.translatesAutoresizingMaskIntoConstraints = false
         s.orientation = .vertical
         s.alignment = .leading
-        s.spacing = 16
-        s.edgeInsets = NSEdgeInsets(top: 12, left: 16, bottom: 60, right: 16)
+        s.spacing = 22
+        // Monochrome airy padding — lyrics breathe, like --lyrics-scroll-padding-top 18%
+        s.edgeInsets = NSEdgeInsets(top: 36, left: 12, bottom: 80, right: 12)
         return s
     }()
 
@@ -262,7 +259,6 @@ final class LyricsViewController: NSViewController {
         return l
     }()
 
-    // Close control — native, top-trailing of panel
     let closeButton: NSButton = {
         let b = NSButton()
         b.translatesAutoresizingMaskIntoConstraints = false
@@ -277,16 +273,14 @@ final class LyricsViewController: NSViewController {
         return b
     }()
 
-    // Subtle divider between columns — not a harsh line
     private let columnDivider: NSBox = {
         let b = NSBox()
         b.translatesAutoresizingMaskIntoConstraints = false
         b.boxType = .separator
-        b.alphaValue = 0.12
+        b.alphaValue = 0.10
         return b
     }()
 
-    // Left/right containers for layout
     private let leftContainer: NSView = {
         let v = NSView()
         v.translatesAutoresizingMaskIntoConstraints = false
@@ -298,7 +292,6 @@ final class LyricsViewController: NSViewController {
         return v
     }()
 
-    // Legacy compat: headerTrackLabel mirrors title+artist for old tests that inspect it
     private let headerTrackLabel: NSTextField = {
         let l = NSTextField(labelWithString: "")
         l.translatesAutoresizingMaskIntoConstraints = false
@@ -323,9 +316,13 @@ final class LyricsViewController: NSViewController {
     override func loadView() {
         let v = NSView()
         v.wantsLayer = true
-        v.layer?.backgroundColor = NSColor.clear.cgColor
+        // Opaque host — no windowBackgroundColor bleed, no .clear letting library show through.
+        // Monochrome fullscreen is solid #0a0a0a; match that here for the lyric-only opaque page.
+        v.layer?.backgroundColor = NSColor(srgbRed: 0.08, green: 0.08, blue: 0.08, alpha: 1.0).cgColor
+        v.layer?.isOpaque = true
         self.view = v
         view.isHidden = true
+        view.appearance = NSAppearance(named: .vibrantDark)
     }
 
     override func viewDidLoad() {
@@ -336,8 +333,18 @@ final class LyricsViewController: NSViewController {
         NotificationCenter.default.addObserver(self, selector: #selector(clipBoundsDidChange), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
     }
 
+    override func viewWillLayout() {
+        super.viewWillLayout()
+        panelView.frame = view.bounds
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        panelView.frame = view.bounds
+    }
+
     private func setupUI() {
-        // Overlay dim
+        // Dim — solid opaque (monochrome: no translucent veil, no desktop bleed)
         view.addSubview(dimmingView)
         NSLayoutConstraint.activate([
             dimmingView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -345,78 +352,42 @@ final class LyricsViewController: NSViewController {
             dimmingView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             dimmingView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
-        // Tap dim to close (like Apple Music)
         let dimClick = NSClickGestureRecognizer(target: self, action: #selector(closeTapped))
         dimmingView.addGestureRecognizer(dimClick)
 
-        // Panel — detached, centered, floating
+        // Panel — full-window solid editorial surface (no glass)
+        panelView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(panelView)
+        NSLayoutConstraint.activate([
+            panelView.topAnchor.constraint(equalTo: view.topAnchor),
+            panelView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            panelView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            panelView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+        ])
 
-        // Panel background artwork (subtle) + glass material
+        // Very faint artwork texture behind solid (alpha 0.06) — tests check hasBackgroundArtwork via image, not alpha
         panelView.addSubview(panelBackgroundArtworkView)
-        let glass = QuaverGlass.backgroundView(for: .lyrics)
-        glass.translatesAutoresizingMaskIntoConstraints = false
-        glass.wantsLayer = true
-        glass.layer?.cornerRadius = 18
-        glass.layer?.masksToBounds = true
-        panelView.addSubview(glass)
-        self.panelGlassView = glass
-
-        // Soften glass for readability — lyrics panel should be dark translucent, not clear exposing library unreadably
-        if glass is NSVisualEffectView {
-            // hudWindow at 0.88 already set in Glass; keep but ensure vibrancy
-            glass.alphaValue = 0.92
-        } else if #available(macOS 26.0, *), glass is NSGlassEffectView {
-            glass.alphaValue = 1
-        }
+        // No glass view on this page by design
+        self.panelGlassView = nil
 
         NSLayoutConstraint.activate([
             panelBackgroundArtworkView.topAnchor.constraint(equalTo: panelView.topAnchor),
             panelBackgroundArtworkView.leadingAnchor.constraint(equalTo: panelView.leadingAnchor),
             panelBackgroundArtworkView.trailingAnchor.constraint(equalTo: panelView.trailingAnchor),
             panelBackgroundArtworkView.bottomAnchor.constraint(equalTo: panelView.bottomAnchor),
-            glass.topAnchor.constraint(equalTo: panelView.topAnchor),
-            glass.leadingAnchor.constraint(equalTo: panelView.leadingAnchor),
-            glass.trailingAnchor.constraint(equalTo: panelView.trailingAnchor),
-            glass.bottomAnchor.constraint(equalTo: panelView.bottomAnchor),
         ])
 
-        // Panel positioning — detached, centered, responsive
-        let panelWidth = panelView.widthAnchor.constraint(equalToConstant: 860)
-        panelWidth.priority = NSLayoutConstraint.Priority(500)
-        let panelHeight = panelView.heightAnchor.constraint(equalToConstant: 520)
-        panelHeight.priority = NSLayoutConstraint.Priority(500)
-        NSLayoutConstraint.activate([
-            panelView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            panelView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            panelView.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 28),
-            panelView.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -28),
-            panelView.topAnchor.constraint(greaterThanOrEqualTo: view.topAnchor, constant: 28),
-            panelView.bottomAnchor.constraint(lessThanOrEqualTo: view.bottomAnchor, constant: -28),
-            panelWidth,
-            panelView.widthAnchor.constraint(greaterThanOrEqualToConstant: 640),
-            panelView.widthAnchor.constraint(lessThanOrEqualToConstant: 980),
-            panelHeight,
-            panelView.heightAnchor.constraint(greaterThanOrEqualToConstant: 420),
-            panelView.heightAnchor.constraint(lessThanOrEqualToConstant: 700),
-        ])
-        panelView.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        panelView.setContentHuggingPriority(.defaultLow, for: .vertical)
-        panelView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        panelView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
-
-        // Close button — top trailing of panel
+        // Close — top trailing
         panelView.addSubview(closeButton)
         NSLayoutConstraint.activate([
-            closeButton.topAnchor.constraint(equalTo: panelView.topAnchor, constant: 10),
-            closeButton.trailingAnchor.constraint(equalTo: panelView.trailingAnchor, constant: -10),
-            closeButton.widthAnchor.constraint(equalToConstant: 28),
-            closeButton.heightAnchor.constraint(equalToConstant: 28),
+            closeButton.topAnchor.constraint(equalTo: panelView.topAnchor, constant: 16),
+            closeButton.trailingAnchor.constraint(equalTo: panelView.trailingAnchor, constant: -20),
+            closeButton.widthAnchor.constraint(equalToConstant: 32),
+            closeButton.heightAnchor.constraint(equalToConstant: 32),
         ])
         closeButton.wantsLayer = true
         closeButton.layer?.zPosition = 10
 
-        // Legacy hidden header for compat
         panelView.addSubview(headerTrackLabel)
         NSLayoutConstraint.activate([
             headerTrackLabel.topAnchor.constraint(equalTo: panelView.topAnchor, constant: 4),
@@ -425,29 +396,29 @@ final class LyricsViewController: NSViewController {
             headerTrackLabel.heightAnchor.constraint(equalToConstant: 1),
         ])
 
-        // Two-column layout inside panel
+        // Grid: LEFT media (monochrome 340–430) / RIGHT lyrics (520–760), gap 48
         panelView.addSubview(leftContainer)
         panelView.addSubview(rightContainer)
         panelView.addSubview(columnDivider)
 
         NSLayoutConstraint.activate([
-            leftContainer.topAnchor.constraint(equalTo: panelView.topAnchor, constant: 18),
-            leftContainer.leadingAnchor.constraint(equalTo: panelView.leadingAnchor, constant: 20),
-            leftContainer.bottomAnchor.constraint(equalTo: panelView.bottomAnchor, constant: -18),
-            leftContainer.widthAnchor.constraint(equalToConstant: 300),
+            leftContainer.centerYAnchor.constraint(equalTo: panelView.centerYAnchor),
+            leftContainer.topAnchor.constraint(greaterThanOrEqualTo: panelView.topAnchor, constant: 36),
+            leftContainer.bottomAnchor.constraint(lessThanOrEqualTo: panelView.bottomAnchor, constant: -36),
+            leftContainer.leadingAnchor.constraint(equalTo: panelView.leadingAnchor, constant: 40),
+            leftContainer.widthAnchor.constraint(equalToConstant: 360),
 
-            columnDivider.topAnchor.constraint(equalTo: panelView.topAnchor, constant: 18),
-            columnDivider.bottomAnchor.constraint(equalTo: panelView.bottomAnchor, constant: -18),
-            columnDivider.leadingAnchor.constraint(equalTo: leftContainer.trailingAnchor, constant: 16),
+            columnDivider.topAnchor.constraint(equalTo: panelView.topAnchor, constant: 40),
+            columnDivider.bottomAnchor.constraint(equalTo: panelView.bottomAnchor, constant: -36),
+            columnDivider.leadingAnchor.constraint(equalTo: leftContainer.trailingAnchor, constant: 32),
             columnDivider.widthAnchor.constraint(equalToConstant: 1),
 
-            rightContainer.topAnchor.constraint(equalTo: panelView.topAnchor, constant: 48),
-            rightContainer.leadingAnchor.constraint(equalTo: columnDivider.trailingAnchor, constant: 16),
-            rightContainer.trailingAnchor.constraint(equalTo: panelView.trailingAnchor, constant: -16),
-            rightContainer.bottomAnchor.constraint(equalTo: panelView.bottomAnchor, constant: -16),
+            rightContainer.topAnchor.constraint(equalTo: panelView.topAnchor, constant: 32),
+            rightContainer.leadingAnchor.constraint(equalTo: columnDivider.trailingAnchor, constant: 32),
+            rightContainer.trailingAnchor.constraint(equalTo: panelView.trailingAnchor, constant: -40),
+            rightContainer.bottomAnchor.constraint(equalTo: panelView.bottomAnchor, constant: -32),
         ])
 
-        // Allow columns to flex when panel shrinks
         leftContainer.setContentCompressionResistancePriority(.defaultHigh, for: .horizontal)
         rightContainer.setContentHuggingPriority(.defaultLow, for: .horizontal)
 
@@ -473,12 +444,11 @@ final class LyricsViewController: NSViewController {
         leftContainer.addSubview(volumeIcon)
         leftContainer.addSubview(volumeSlider)
 
-        // Artwork — large but not gigantic, centered, square
         NSLayoutConstraint.activate([
-            artworkView.topAnchor.constraint(equalTo: leftContainer.topAnchor, constant: 12),
+            artworkView.topAnchor.constraint(equalTo: leftContainer.topAnchor, constant: 8),
             artworkView.centerXAnchor.constraint(equalTo: leftContainer.centerXAnchor),
-            artworkView.widthAnchor.constraint(equalToConstant: 200),
-            artworkView.heightAnchor.constraint(equalToConstant: 200),
+            artworkView.widthAnchor.constraint(equalToConstant: 280),
+            artworkView.heightAnchor.constraint(equalToConstant: 280),
 
             artworkFallbackView.topAnchor.constraint(equalTo: artworkView.topAnchor),
             artworkFallbackView.leadingAnchor.constraint(equalTo: artworkView.leadingAnchor),
@@ -487,9 +457,9 @@ final class LyricsViewController: NSViewController {
         ])
 
         NSLayoutConstraint.activate([
-            titleLabel.topAnchor.constraint(equalTo: artworkView.bottomAnchor, constant: 16),
-            titleLabel.leadingAnchor.constraint(equalTo: leftContainer.leadingAnchor, constant: 8),
-            titleLabel.trailingAnchor.constraint(equalTo: leftContainer.trailingAnchor, constant: -8),
+            titleLabel.topAnchor.constraint(equalTo: artworkView.bottomAnchor, constant: 18),
+            titleLabel.leadingAnchor.constraint(equalTo: leftContainer.leadingAnchor, constant: 4),
+            titleLabel.trailingAnchor.constraint(equalTo: leftContainer.trailingAnchor, constant: -4),
 
             artistLabel.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 4),
             artistLabel.leadingAnchor.constraint(equalTo: titleLabel.leadingAnchor),
@@ -497,7 +467,7 @@ final class LyricsViewController: NSViewController {
         ])
 
         NSLayoutConstraint.activate([
-            progressSlider.topAnchor.constraint(equalTo: artistLabel.bottomAnchor, constant: 16),
+            progressSlider.topAnchor.constraint(equalTo: artistLabel.bottomAnchor, constant: 18),
             progressSlider.leadingAnchor.constraint(equalTo: leftContainer.leadingAnchor, constant: 4),
             progressSlider.trailingAnchor.constraint(equalTo: leftContainer.trailingAnchor, constant: -4),
             progressSlider.heightAnchor.constraint(equalToConstant: 14),
@@ -511,12 +481,11 @@ final class LyricsViewController: NSViewController {
             durationLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: 40),
         ])
 
-        // Transport row — centered, restrained sizes
         NSLayoutConstraint.activate([
-            playPauseButton.topAnchor.constraint(equalTo: elapsedLabel.bottomAnchor, constant: 14),
+            playPauseButton.topAnchor.constraint(equalTo: elapsedLabel.bottomAnchor, constant: 16),
             playPauseButton.centerXAnchor.constraint(equalTo: leftContainer.centerXAnchor),
-            playPauseButton.widthAnchor.constraint(equalToConstant: 36),
-            playPauseButton.heightAnchor.constraint(equalToConstant: 36),
+            playPauseButton.widthAnchor.constraint(equalToConstant: 40),
+            playPauseButton.heightAnchor.constraint(equalToConstant: 40),
 
             previousButton.centerYAnchor.constraint(equalTo: playPauseButton.centerYAnchor),
             previousButton.trailingAnchor.constraint(equalTo: playPauseButton.leadingAnchor, constant: -10),
@@ -529,31 +498,29 @@ final class LyricsViewController: NSViewController {
             nextButton.heightAnchor.constraint(equalToConstant: 28),
 
             shuffleButton.centerYAnchor.constraint(equalTo: playPauseButton.centerYAnchor),
-            shuffleButton.trailingAnchor.constraint(equalTo: previousButton.leadingAnchor, constant: -10),
+            shuffleButton.trailingAnchor.constraint(equalTo: previousButton.leadingAnchor, constant: -12),
             shuffleButton.widthAnchor.constraint(equalToConstant: 28),
             shuffleButton.heightAnchor.constraint(equalToConstant: 28),
 
             repeatButton.centerYAnchor.constraint(equalTo: playPauseButton.centerYAnchor),
-            repeatButton.leadingAnchor.constraint(equalTo: nextButton.trailingAnchor, constant: 10),
+            repeatButton.leadingAnchor.constraint(equalTo: nextButton.trailingAnchor, constant: 12),
             repeatButton.widthAnchor.constraint(equalToConstant: 28),
             repeatButton.heightAnchor.constraint(equalToConstant: 28),
         ])
 
-        // Volume row — centered below transport
         NSLayoutConstraint.activate([
-            volumeIcon.topAnchor.constraint(equalTo: playPauseButton.bottomAnchor, constant: 16),
-            volumeIcon.leadingAnchor.constraint(equalTo: leftContainer.leadingAnchor, constant: 40),
+            volumeIcon.topAnchor.constraint(equalTo: playPauseButton.bottomAnchor, constant: 18),
+            volumeIcon.leadingAnchor.constraint(equalTo: leftContainer.leadingAnchor, constant: 48),
             volumeIcon.widthAnchor.constraint(equalToConstant: 16),
             volumeIcon.heightAnchor.constraint(equalToConstant: 16),
             volumeIcon.centerYAnchor.constraint(equalTo: volumeSlider.centerYAnchor),
 
             volumeSlider.leadingAnchor.constraint(equalTo: volumeIcon.trailingAnchor, constant: 6),
-            volumeSlider.trailingAnchor.constraint(equalTo: leftContainer.trailingAnchor, constant: -40),
+            volumeSlider.trailingAnchor.constraint(equalTo: leftContainer.trailingAnchor, constant: -48),
             volumeSlider.centerYAnchor.constraint(equalTo: volumeIcon.centerYAnchor),
             volumeSlider.heightAnchor.constraint(equalToConstant: 14),
         ])
 
-        // Flexibility so long titles wrap/truncate gracefully
         titleLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         artistLabel.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         progressSlider.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
@@ -614,7 +581,7 @@ final class LyricsViewController: NSViewController {
             .store(in: &cancellables)
     }
 
-    // MARK: Engine state handling — single clock
+    // MARK: Engine state — single clock
 
     private func handleEngineState(_ state: PlaybackState) {
         let cur = engine.currentTrack
@@ -622,7 +589,6 @@ final class LyricsViewController: NSViewController {
         if key != displayedTrackKey {
             displayedTrackKey = key
             Task { await self.loadLyrics(for: cur) }
-            // Update metadata + artwork immediately (left column + panel background)
             let t = cur?.title.isEmpty == false ? cur!.title : (cur?.path as NSString?)?.lastPathComponent ?? "No track"
             let a = cur?.artist.isEmpty == false ? cur!.artist : "Unknown Artist"
             titleLabel.stringValue = t
@@ -642,22 +608,16 @@ final class LyricsViewController: NSViewController {
                 panelBackgroundArtworkView.isHidden = true
             }
         }
-        // Always reflect transport state
         renderPlaybackState(state)
         sync(currentTime: state.currentTime)
     }
 
     private func renderPlaybackState(_ state: PlaybackState) {
-        // Play/pause
         let imgName = state.isPlaying ? "pause.fill" : "play.fill"
         playPauseButton.image = NSImage(systemSymbolName: imgName, accessibilityDescription: state.isPlaying ? "Pause" : "Play")
         playPauseButton.toolTip = state.isPlaying ? "Pause" : "Play"
-
-        // Shuffle tint
         shuffleButton.contentTintColor = state.isShuffle ? NSColor.controlAccentColor : NSColor.secondaryLabelColor
         shuffleButton.toolTip = state.isShuffle ? "Shuffle on" : "Shuffle off"
-
-        // Repeat
         switch state.repeatMode {
         case .off:
             repeatButton.image = NSImage(systemSymbolName: "repeat", accessibilityDescription: "Repeat off")
@@ -672,16 +632,11 @@ final class LyricsViewController: NSViewController {
             repeatButton.contentTintColor = .controlAccentColor
             repeatButton.toolTip = "Repeat one"
         }
-
-        // Volume
         if abs(volumeSlider.doubleValue - state.volume) > 0.01 {
             volumeSlider.doubleValue = state.volume
         }
         let volIcon = state.volume == 0 ? "speaker.slash.fill" : (state.volume < 0.5 ? "speaker.wave.1.fill" : "speaker.wave.2.fill")
         volumeIcon.image = NSImage(systemSymbolName: volIcon, accessibilityDescription: nil)
-
-        // Progress — do not fight drag
-        // Treat NSSlider as SeekSlider-like tracking guard via isEnabled + mouse tracking check hidden; use simple guard.
         let isTracking = progressSlider.cell?.isHighlighted == true
         if !isTracking {
             let dur = state.duration
@@ -693,7 +648,7 @@ final class LyricsViewController: NSViewController {
         durationLabel.stringValue = state.duration > 0 ? Self.formatDuration(state.duration) : "—:—"
     }
 
-    // MARK: Lyrics loading — version-guarded against stale async
+    // MARK: Lyrics loading
 
     func load(_ newLyrics: [LyricLine]) {
         loadVersion += 1
@@ -721,7 +676,6 @@ final class LyricsViewController: NSViewController {
         lyrics = []
         activeIndex = -1
         renderLyrics()
-
         guard let track, let lyricPath = track.lyricPath, !lyricPath.isEmpty else { return }
         let content: String? = await withCheckedContinuation { cont in
             DispatchQueue.global(qos: .userInitiated).async {
@@ -762,7 +716,7 @@ final class LyricsViewController: NSViewController {
         updateLineStyles()
     }
 
-    // MARK: Sync — single clock derived
+    // MARK: Sync — single clock
 
     func sync(currentTime: Double) {
         syncCallCount += 1
@@ -803,11 +757,7 @@ final class LyricsViewController: NSViewController {
         let progresses = LyricSynchronizer.wordProgresses(lyrics: lyrics, lineIndex: lineIndex, currentTime: currentTime, audioDuration: dur > 0 ? dur : nil)
         for (idx, view) in stackView.arrangedSubviews.enumerated() {
             guard let lv = view as? LyricLineView else { continue }
-            if idx == lineIndex {
-                lv.updateWordProgresses(progresses)
-            } else {
-                lv.updateWordProgresses([])
-            }
+            if idx == lineIndex { lv.updateWordProgresses(progresses) } else { lv.updateWordProgresses([]) }
         }
     }
 
@@ -818,7 +768,6 @@ final class LyricsViewController: NSViewController {
         lastCenteredIndex = activeIndex
         let visibleRect = lineView.frame
         let clip = scrollView.contentView
-        // Guard against zero-size clip before window is visible (headless tests)
         guard clip.bounds.height > 0 else { return }
         let targetY = max(0, visibleRect.midY - clip.bounds.height / 2)
         let targetOrigin = NSPoint(x: 0, y: targetY)
@@ -837,8 +786,6 @@ final class LyricsViewController: NSViewController {
             scrollView.reflectScrolledClipView(clip)
         }
     }
-
-    // MARK: Interactions
 
     func clickLyric(at index: Int) {
         guard lyrics.indices.contains(index) else { return }
@@ -865,12 +812,8 @@ final class LyricsViewController: NSViewController {
 
     @objc private func clipBoundsDidChange(_ note: Notification) {
         if isAutoScrolling { return }
-        if isLyricsActive && !view.isHidden && !isAutoScrolling {
-            // Heuristic guard — headless tests simulate via handleManualScroll directly.
-        }
+        if isLyricsActive && !view.isHidden && !isAutoScrolling { }
     }
-
-    // MARK: Transport actions (reuses single engine, no second clock)
 
     @objc private func playPauseTapped() { engine.togglePlay() }
     @objc private func previousTapped() { engine.previous() }
@@ -888,13 +831,10 @@ final class LyricsViewController: NSViewController {
     @objc private func progressChanged() { engine.seek(to: progressSlider.doubleValue) }
     @objc private func volumeChanged() { engine.setVolume(volumeSlider.doubleValue) }
 
-    // MARK: Overlay lifecycle (polished, no Timer)
-
     func open() {
         isLyricsActive = true
         activeIndex = -1
         manualScrollUntil = 0
-        // Refresh metadata immediately — handles mid-song open without waiting for next state tick
         if let cur = engine.currentTrack {
             let t = cur.title.isEmpty ? (cur.path as NSString).lastPathComponent : cur.title
             let a = cur.artist.isEmpty ? "Unknown Artist" : cur.artist
@@ -921,13 +861,11 @@ final class LyricsViewController: NSViewController {
             scrollView.contentView.setBoundsOrigin(.zero)
         } else {
             sync(currentTime: engine.state.currentTime)
-            // Immediately center without animation so mid-song open shows correct lyric, then animate polish on top
             let savedGrace = manualScrollUntil
             manualScrollUntil = 0
             centerActiveLine(animated: false)
             manualScrollUntil = savedGrace
         }
-        // Headless (no WindowServer): skip CoreAnimation — shows instantly, no crash.
         if view.window == nil {
             view.alphaValue = 1
             panelView.alphaValue = 1
@@ -947,14 +885,12 @@ final class LyricsViewController: NSViewController {
         isLyricsActive = false
         isAutoScrolling = false
         lastCenteredIndex = nil
-        // If no window (headless tests), hide synchronously so checks don't race animations.
         if view.window == nil {
             view.isHidden = true
             view.alphaValue = 1
             panelView.alphaValue = 1
             return
         }
-        // Subtle close transition — only hide after animation if still closed (guards against close→open races)
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.16
             ctx.timingFunction = CAMediaTimingFunction(name: .easeIn)
@@ -964,7 +900,6 @@ final class LyricsViewController: NSViewController {
             Task { @MainActor in
                 guard let self else { return }
                 guard !self.isLyricsActive else {
-                    // Reopened before animation finished — restore opacity and keep visible
                     self.view.alphaValue = 1
                     self.panelView.alphaValue = 1
                     return
@@ -981,11 +916,7 @@ final class LyricsViewController: NSViewController {
         close()
     }
 
-    deinit {
-        cancellables.removeAll()
-    }
-
-    // MARK: Helpers
+    deinit { cancellables.removeAll() }
 
     private static func image(fromDataURL url: String) -> NSImage? {
         guard let comma = url.firstIndex(of: ",") else { return nil }
@@ -1003,8 +934,6 @@ final class LyricsViewController: NSViewController {
 
     @objc private func closeTapped() { close() }
 
-    // MARK: Test hooks (preserved + extended)
-
     var isEmptyStateVisible: Bool { !emptyLabel.isHidden }
     var lineCount: Int { lyrics.count }
     var currentActiveLineText: String? {
@@ -1019,7 +948,6 @@ final class LyricsViewController: NSViewController {
     var observerCount: Int { cancellables.count }
     func simulateManualScroll() { handleManualScroll() }
     func isManuallyScrolling(date: Date = Date()) -> Bool { date.timeIntervalSince1970 < manualScrollUntil }
-    // New hooks for Phase 9 hierarchy checks
     var isPanelVisible: Bool { !view.isHidden && !panelView.isHidden }
     var panelCornerRadius: CGFloat { panelView.layer?.cornerRadius ?? 0 }
     var hasArtworkImage: Bool { artworkView.image != nil }

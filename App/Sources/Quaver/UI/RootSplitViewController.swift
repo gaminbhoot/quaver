@@ -94,6 +94,9 @@ final class RootSplitViewController: NSSplitViewController {
         sidebarVC.selectView(.all)
         libraryVC.setView(.all)
 
+        // Fallback path when Library delegate was nil for any reason — notification bridge
+        NotificationCenter.default.addObserver(self, selector: #selector(handleFallbackPlay(_:)), name: NSNotification.Name("QuaverPlayTrack"), object: nil)
+
         let container = self.view
         let sv = self.splitView
         sv.translatesAutoresizingMaskIntoConstraints = false
@@ -128,6 +131,7 @@ final class RootSplitViewController: NSSplitViewController {
         sidebarView.layer?.shadowOpacity = 0
         sidebarView.layer?.shadowRadius = 0
         sidebarView.layer?.shadowOffset = NSSize(width: 0, height: 0)
+        sidebarView.layer?.zPosition = 20
 
         barView.wantsLayer = true
         barView.layer?.cornerRadius = 34
@@ -136,6 +140,9 @@ final class RootSplitViewController: NSSplitViewController {
         barView.layer?.shadowOpacity = 0.28
         barView.layer?.shadowRadius = 20
         barView.layer?.shadowOffset = NSSize(width: 0, height: 8)
+        barView.layer?.zPosition = 50
+        libraryView.wantsLayer = true
+        libraryView.layer?.zPosition = 0
 
         // SplitView fills container but is hidden — preserves layout logic for tests
         // while the manual libraryView provides the visible background.
@@ -218,6 +225,23 @@ final class RootSplitViewController: NSSplitViewController {
                 splitView.setPosition(pos, ofDividerAt: 0)
             }
         }
+        ensurePillVisible()
+    }
+
+    private func ensurePillVisible() {
+        // Defensive: pill must never be hidden or clipped behind lyrics when library is showing.
+        let bar = playerBar.view
+        if bar.isHidden { bar.isHidden = false; NSLog("[Quaver] pill was hidden — unhid") }
+        if bar.alphaValue < 0.5 { bar.alphaValue = 1 }
+        // Keep bar on top of library but below lyrics overlay (lyrics z 100)
+        view.addSubview(bar, positioned: .above, relativeTo: nil)
+        view.addSubview(lyricsVC.view, positioned: .above, relativeTo: nil)
+        // If lyrics is inactive, its view must be hidden so it doesn't occlude pill/library.
+        if !lyricsVC.isLyricsActive && !lyricsVC.view.isHidden {
+            NSLog("[Quaver] lyricsView visible while inactive — hiding")
+            lyricsVC.view.isHidden = true
+        }
+        NSLog("[Quaver] pill frame \(bar.frame) hidden=\(bar.isHidden) lyricsHidden=\(lyricsVC.view.isHidden) container=\(view.bounds)")
     }
 
     private func loadSavedLibrary() {
@@ -225,6 +249,23 @@ final class RootSplitViewController: NSSplitViewController {
         Task { [weak self] in
             guard let self else { return }
             await self.scanFolder(folder, persist: false)
+        }
+    }
+
+    @objc private func handleFallbackPlay(_ note: Notification) {
+        guard let key = note.userInfo?["trackKey"] as? String else { return }
+        let idxOpt = note.userInfo?["index"] as? Int
+        NSLog("[Quaver] fallback notification play key=\(key) idx=\(String(describing: idxOpt))")
+        // Try to resolve key in current library first
+        if let libIdx = library.firstIndex(where: { $0.key == key }) {
+            engine.play(trackAt: libIdx)
+            return
+        }
+        // Fallback: try visible tracks snapshot from note if library miss
+        if let row = idxOpt, let vis = note.userInfo?["visible"] as? [TrackMetadata], vis.indices.contains(row) {
+            let t = vis[row]
+            if let libIdx = library.firstIndex(where: { $0.key == t.key }) { engine.play(trackAt: libIdx) }
+            else { engine.setLibrary(vis); engine.play(trackAt: row) }
         }
     }
 
@@ -325,12 +366,17 @@ extension RootSplitViewController: SidebarViewControllerDelegate {
 extension RootSplitViewController: LibraryViewControllerDelegate {
 
     func libraryDidSelectPlay(trackAt index: Int, inVisibleTracks visible: [TrackMetadata]) {
-        guard visible.indices.contains(index) else { return }
+        guard visible.indices.contains(index) else {
+            NSLog("[Quaver] libraryDidSelectPlay ignored — index \(index) out of visible \(visible.count)")
+            return
+        }
         let track = visible[index]
+        NSLog("[Quaver] double-click → play \(track.path) key=\(track.key) vis=\(index) lib=\(library.firstIndex(where:{$0.key==track.key}) ?? -1) title=\(track.title)")
         store.recordPlayed(trackKey: track.key)
         if let libIndex = library.firstIndex(where: { $0.key == track.key }) {
             engine.play(trackAt: libIndex)
         } else if !visible.isEmpty {
+            NSLog("[Quaver] visible not in library, resetting library to visible count \(visible.count)")
             engine.setLibrary(visible)
             engine.play(trackAt: index)
         }

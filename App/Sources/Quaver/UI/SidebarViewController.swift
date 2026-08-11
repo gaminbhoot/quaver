@@ -163,7 +163,8 @@ final class SidebarViewController: NSViewController {
         tableView.dataSource = self
         tableView.delegate = self
         tableView.target = self
-        tableView.doubleAction = #selector(rowDoubleClicked)
+        tableView.doubleAction = #selector(rowDoubleClicked(_:))
+        tableView.action = #selector(rowClicked(_:))
     }
 
     private func rebuildRows() {
@@ -229,12 +230,18 @@ final class SidebarViewController: NSViewController {
         delegate?.sidebarDidRequestCreatePlaylist()
     }
 
-    @objc private func rowDoubleClicked() {
-        let row = tableView.clickedRow
+    @objc private func rowDoubleClicked(_ sender: Any?) {
+        let clicked = tableView.clickedRow
+        let selected = tableView.selectedRow
+        let row = clicked >= 0 ? clicked : selected
         guard row >= 0, rows.indices.contains(row) else { return }
         let item = rows[row]
         if item.isHeader { return }
         handleSelection(row: row)
+    }
+
+    @objc private func rowClicked(_ sender: Any?) {
+        // Single-click handled by selectionDidChange; kept for target/action.
     }
 
     private func handleSelection(row: Int) {
