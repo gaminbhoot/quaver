@@ -35,8 +35,9 @@ final class LyricLineView: NSView {
         self.lyricLine = line
         self.lineIndex = index
         super.init(frame: .zero)
-        wantsLayer = true
-        layer?.cornerRadius = 8
+        // Perf: no layer/cornerRadius — line is just typography on solid #0a0a0a,
+        // no background fill ever (layer?.backgroundColor always clear). Removing
+        // the extra CALayer per line saves compositing for 200+ lines while scrolling.
         buildWords()
         addSubview(container)
         NSLayoutConstraint.activate([
@@ -55,6 +56,9 @@ final class LyricLineView: NSView {
     private func buildWords() {
         let rawWords = lyricLine.text.split { $0.isWhitespace }.map(String.init).filter { !$0.isEmpty }
         wordStrings = rawWords
+        // Perf: rely on NSStackView spacing (8) for gaps — no extra spacer NSViews per gap.
+        // Each spacer was an extra view+constraint pair per word, doubling layout work for 200 lines.
+        container.spacing = 8
         for (wi, w) in rawWords.enumerated() {
             let label = NSTextField(labelWithString: w)
             label.font = .systemFont(ofSize: 24, weight: .medium)
@@ -69,13 +73,6 @@ final class LyricLineView: NSView {
             label.addGestureRecognizer(gr)
             wordLabels.append(label)
             container.addArrangedSubview(label)
-            if wi < rawWords.count - 1 {
-                let sp = NSView()
-                sp.translatesAutoresizingMaskIntoConstraints = false
-                sp.widthAnchor.constraint(equalToConstant: 8).isActive = true
-                sp.heightAnchor.constraint(equalToConstant: 1).isActive = true
-                container.addArrangedSubview(sp)
-            }
         }
         if rawWords.isEmpty {
             let label = NSTextField(labelWithString: lyricLine.text)
@@ -127,21 +124,27 @@ final class LyricLineView: NSView {
             label.attributedStringValue = NSAttributedString(string: label.stringValue, attributes: attrs)
             label.alphaValue = 1
         }
-        layer?.backgroundColor = NSColor.clear.cgColor
+        // No layer backgroundColor churn — view is already solid behind overlay.
     }
 
     func updateWordProgresses(_ progresses: [Double]) {
         if progresses.isEmpty { return }
         let highlight = NSColor(hex: 0xF6F4EF) ?? .labelColor
+        // Perf: karaoke blends only color/alpha — keeping font size/weight constant
+        // avoids NSStackView relayout on every 0.1s tick. Previous code toggled
+        // 30↔29 and medium↔semibold per word per tick which invalidated layout for
+        // the active line and forced the whole lyrics documentView to reflow.
+        let fixedSize: CGFloat = isActiveLine ? 30 : 24
+        let fixedWeight: NSFont.Weight = isActiveLine ? .semibold : .medium
+        let fixedFont = NSFont.systemFont(ofSize: fixedSize, weight: fixedWeight)
         for (idx, prog) in progresses.enumerated() where wordLabels.indices.contains(idx) {
             let label = wordLabels[idx]
             let p = max(0, min(1, prog))
             let baseAlpha: CGFloat = isPastLine ? 0.32 : 0.42
             let blended = highlight.withAlphaComponent(baseAlpha + (1.0 - baseAlpha) * p)
-            let size: CGFloat = isActiveLine ? (p > 0.5 ? 30 : 29) : 24
-            let w: NSFont.Weight = p >= 1 ? .semibold : .medium
+            // Reuse font — no layout churn
             label.attributedStringValue = NSAttributedString(string: label.stringValue, attributes: [
-                .font: NSFont.systemFont(ofSize: size, weight: w),
+                .font: fixedFont,
                 .foregroundColor: blended,
                 .kern: -0.5,
             ])
@@ -156,7 +159,7 @@ final class LyricLineView: NSView {
 
     var wordCount: Int { wordStrings.count }
     var currentFontSize: CGFloat { wordLabels.first?.font?.pointSize ?? 0 }
-    var isHighlighted: Bool { layer?.backgroundColor != NSColor.clear.cgColor }
+    var isHighlighted: Bool { false }
 }
 
 private extension NSColor {

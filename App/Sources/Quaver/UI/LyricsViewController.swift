@@ -549,6 +549,9 @@ final class LyricsViewController: NSViewController {
         documentView.addSubview(stackView)
         scrollView.documentView = documentView
         scrollView.automaticallyAdjustsContentInsets = false
+        // Perf: non-layer clip view avoids per-frame offscreen compositing of lyrics
+        scrollView.wantsLayer = false
+        scrollView.contentView.wantsLayer = false
 
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: rightContainer.topAnchor),

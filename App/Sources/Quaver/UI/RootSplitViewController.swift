@@ -143,6 +143,9 @@ final class RootSplitViewController: NSSplitViewController, NSPopoverDelegate {
         barView.layer?.shadowOpacity = 0.28
         barView.layer?.shadowRadius = 20
         barView.layer?.shadowOffset = NSSize(width: 0, height: 8)
+        // Perf: rasterize pill — cache offscreen so shadow isn't recomputed while library scrolls
+        barView.layer?.shouldRasterize = true
+        barView.layer?.rasterizationScale = NSScreen.main?.backingScaleFactor ?? 2
         barView.layer?.zPosition = 50
         libraryView.wantsLayer = true
         libraryView.layer?.zPosition = 0
@@ -229,6 +232,20 @@ final class RootSplitViewController: NSSplitViewController, NSPopoverDelegate {
             }
         }
         ensurePillVisible()
+    }
+
+    override func viewDidLayout() {
+        super.viewDidLayout()
+        // Shadow path — without it layer recomputes shadow from alpha every frame while scrolling.
+        let bar = playerBar.view
+        if let l = bar.layer, bar.bounds.width > 0 {
+            let path = CGPath(roundedRect: bar.bounds, cornerWidth: 34, cornerHeight: 34, transform: nil)
+            if l.shadowPath == nil || !l.shadowPath!.boundingBox.equalTo(path.boundingBox) {
+                l.shadowPath = path
+            }
+        }
+        // Keep header mask frame in sync only if it still exists (may be removed for perf).
+        // LibraryViewController owns its own header mask; this stays for pill only.
     }
 
     private func ensurePillVisible() {

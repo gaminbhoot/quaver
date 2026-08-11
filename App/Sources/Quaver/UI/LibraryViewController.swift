@@ -168,8 +168,19 @@ final class LibraryViewController: NSViewController {
         view.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
     }
 
-    private let headerBlurView: NSView = QuaverGlass.backgroundView(for: .header)
-    private var headerGradientMask: CAGradientLayer?
+    private let headerBlurView: NSView = {
+        // Perf: solid header — avoids NSVisualEffectView withinWindow live sampling
+        // the scrolling 483-row table behind it every frame. The previous
+        // CAGradientLayer mask forced an extra offscreen pass per frame while
+        // scrolling under glass. Solid coherent surface matches the library's
+        // windowBackgroundColor and keeps header cheap.
+        let v = NSView()
+        v.translatesAutoresizingMaskIntoConstraints = false
+        v.wantsLayer = true
+        v.layer?.backgroundColor = NSColor.windowBackgroundColor.cgColor
+        return v
+    }()
+    // Removed headerGradientMask — offscreen mask recomputed each layout/scroll.
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -228,7 +239,8 @@ final class LibraryViewController: NSViewController {
         sortPopup.target = self
         sortPopup.action = #selector(sortChanged)
 
-        // Hide hard 1px separator — transitional blur provides soft boundary instead.
+        // Hide hard 1px separator — solid header provides the boundary.
+        // (Removed gradient mask: offscreen compositing per frame while scrolling.)
         separator.isHidden = true
         separator.alphaValue = 0
         view.addSubview(separator)
@@ -238,25 +250,6 @@ final class LibraryViewController: NSViewController {
             separator.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             separator.heightAnchor.constraint(equalToConstant: 1),
         ])
-
-        // Soft fade mask at bottom edge of header — content blurs progressively.
-        let mask = CAGradientLayer()
-        mask.colors = [NSColor.black.cgColor, NSColor.black.cgColor, NSColor.clear.cgColor]
-        mask.locations = [0, 0.7, 1]
-        mask.startPoint = CGPoint(x: 0.5, y: 1)
-        mask.endPoint = CGPoint(x: 0.5, y: 0)
-        headerBlurView.wantsLayer = true
-        headerBlurView.layer?.mask = mask
-        headerView.layer?.mask = nil
-        headerGradientMask = mask
-    }
-
-    override func viewDidLayout() {
-        super.viewDidLayout()
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        headerGradientMask?.frame = headerBlurView.bounds
-        CATransaction.commit()
     }
 
     private func setupTable() {
@@ -340,11 +333,13 @@ final class LibraryViewController: NSViewController {
             loadingIndicator.centerYAnchor.constraint(equalTo: view.centerYAnchor),
         ])
 
-        // Keep header visually above scrollView so content scrolls underneath blur.
-        headerView.wantsLayer = true
-        headerView.layer?.zPosition = 10
-        scrollView.wantsLayer = true
-        scrollView.layer?.zPosition = 0
+        // Keep header visually above scrollView so content scrolls underneath.
+        // Perf: scrollView is NOT layer-backed — lets NSClipView minimize invalidated
+        // area via its modern blit path. The previous scrollView.wantsLayer=true +
+        // zPosition disabled the optimized path and forced full table redraw per scroll.
+        headerView.wantsLayer = false
+        scrollView.wantsLayer = false
+        scrollView.contentView.wantsLayer = false
     }
 
     private func setupEmpty() {

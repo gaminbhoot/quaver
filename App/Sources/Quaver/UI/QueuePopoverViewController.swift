@@ -188,6 +188,9 @@ final class QueuePopoverViewController: NSViewController {
         tableView.registerForDraggedTypes([dragUTI])
         tableView.setDraggingSourceOperationMask(.move, forLocal: true)
         tableView.allowsColumnReordering = false
+        // Perf: non-layer blit path for 483-row queue list
+        scrollView.wantsLayer = false
+        scrollView.contentView.wantsLayer = false
         // Track live scrolling so we don't yank the list while the user drags the scroller.
         NotificationCenter.default.addObserver(self, selector: #selector(scrollWillStart), name: NSScrollView.willStartLiveScrollNotification, object: scrollView)
         NotificationCenter.default.addObserver(self, selector: #selector(scrollDidEnd), name: NSScrollView.didEndLiveScrollNotification, object: scrollView)
@@ -200,7 +203,9 @@ final class QueuePopoverViewController: NSViewController {
         // which would otherwise reloadData and fight the scrollView's tracking loop (jitter).
         engine.statePublisher
             .removeDuplicates { a, b in
-                a.queueOrder == b.queueOrder && a.currentTrackIndex == b.currentTrackIndex && a.isPlaying == b.isPlaying
+                if a.queueOrder != b.queueOrder { return false }
+                if a.currentTrackIndex != b.currentTrackIndex { return false }
+                return a.isPlaying == b.isPlaying
             }
             .receive(on: DispatchQueue.main)
             .sink { [weak self] state in
@@ -320,9 +325,7 @@ extension QueuePopoverViewController: NSTableViewDataSource, NSTableViewDelegate
             let art = NSImageView(frame: NSRect(x: 0, y: 6, width: 32, height: 32))
             art.translatesAutoresizingMaskIntoConstraints = false
             art.imageScaling = .scaleProportionallyUpOrDown
-            art.wantsLayer = true
-            art.layer?.cornerRadius = 4
-            art.layer?.masksToBounds = true
+            // Perf: square, no per-row corner mask offscreen pass
             art.identifier = NSUserInterfaceItemIdentifier("art")
             let title = NSTextField(labelWithString: "")
             title.translatesAutoresizingMaskIntoConstraints = false

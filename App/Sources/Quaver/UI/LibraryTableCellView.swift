@@ -12,9 +12,9 @@ final class LibraryTableCellView: NSTableCellView {
         let v = NSImageView()
         v.translatesAutoresizingMaskIntoConstraints = false
         v.imageScaling = .scaleProportionallyUpOrDown
-        v.wantsLayer = true
-        v.layer?.cornerRadius = 4
-        v.layer?.masksToBounds = true
+        // Perf: no per-cell offscreen mask. Square 32pt artwork avoids
+        // cornerRadius/masksToBounds compositing for every row every frame.
+        // CoverImageCache still supplies decoding; NSImageView draws without layer.
         v.image = NSImage(systemSymbolName: "music.note", accessibilityDescription: nil)
         v.contentTintColor = .secondaryLabelColor
         return v
