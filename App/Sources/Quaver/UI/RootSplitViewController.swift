@@ -17,12 +17,14 @@ import Combine
 // independent geometry/shadow/material, not a connected sheet.
 
 @MainActor
-final class RootSplitViewController: NSSplitViewController {
+final class RootSplitViewController: NSSplitViewController, NSPopoverDelegate {
 
     let store: LibraryStore
     let engine: NativePlaybackEngine
     let playerBar: PlayerBarViewController
     let lyricsVC: LyricsViewController
+    let queueVC: QueuePopoverViewController
+    private var queuePopover: NSPopover?
 
     private(set) var library: [TrackMetadata] = []
     private(set) var selectedView: LibraryView = .all
@@ -41,6 +43,7 @@ final class RootSplitViewController: NSSplitViewController {
         self.engine = eng
         self.playerBar = PlayerBarViewController(engine: eng)
         self.lyricsVC = LyricsViewController(engine: eng)
+        self.queueVC = QueuePopoverViewController(engine: eng, library: [])
         if let s = store { self.store = s } else { self.store = LibraryStore() }
         super.init(nibName: nil, bundle: nil)
         self.playerBar.delegate = self
@@ -284,6 +287,7 @@ final class RootSplitViewController: NSSplitViewController {
         self.library = tracks
         libraryVC.setLibrary(tracks)
         engine.setLibrary(tracks)
+        queueVC.updateLibrary(tracks)
     }
 
     /// Canonical navigation (used by menu, shortcuts, and sidebar). Single path.
@@ -307,6 +311,7 @@ final class RootSplitViewController: NSSplitViewController {
         self.library = tracks
         libraryVC.setLibrary(tracks)
         engine.setLibrary(tracks)
+        await MainActor.run { self.queueVC.updateLibrary(tracks) }
     }
 
     func handleAddFolderRequest() {
@@ -378,6 +383,9 @@ extension RootSplitViewController: LibraryViewControllerDelegate {
         } else if !visible.isEmpty {
             NSLog("[Quaver] visible not in library, resetting library to visible count \(visible.count)")
             engine.setLibrary(visible)
+            self.library = visible
+            self.libraryVC.setLibrary(visible)
+            self.queueVC.updateLibrary(visible)
             engine.play(trackAt: index)
         }
         if case .recent = selectedView {
@@ -394,7 +402,35 @@ extension RootSplitViewController: LibraryViewControllerDelegate {
 
 extension RootSplitViewController: PlayerBarViewControllerDelegate {
     func playerBarDidRequestQueue(_ bar: PlayerBarViewController) {
-        NSSound.beep()
+        toggleQueue(anchoredTo: bar.queueButton)
+    }
+    func toggleQueue(anchoredTo anchor: NSView? = nil) {
+        if let pop = queuePopover, pop.isShown {
+            pop.performClose(nil)
+            return
+        }
+        let pop = queuePopover ?? makeQueuePopover()
+        queuePopover = pop
+        queueVC.updateLibrary(library)
+        queueVC.reload()
+        let actualAnchor: NSView = anchor ?? playerBar.view
+        // Headless guard — view.window may be nil in tests
+        guard actualAnchor.window != nil else { return }
+        pop.show(relativeTo: actualAnchor.bounds, of: actualAnchor, preferredEdge: .maxY)
+    }
+    private func makeQueuePopover() -> NSPopover {
+        let pop = NSPopover()
+        pop.contentViewController = queueVC
+        pop.behavior = .transient
+        pop.animates = true
+        pop.delegate = self
+        return pop
+    }
+    var isQueueVisible: Bool { queuePopover?.isShown ?? false }
+
+    // MARK: NSPopoverDelegate
+    func popoverDidClose(_ notification: Notification) {
+        // keep popover instance for reuse, just clear shown state
     }
     func playerBarDidRequestLyrics(_ bar: PlayerBarViewController) {
         toggleLyrics()

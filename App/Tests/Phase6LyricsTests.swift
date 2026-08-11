@@ -40,6 +40,8 @@ final class LyricsFakeEngine: PlaybackEngine {
     }
     var seekHistory: [Double] = []
     func setLibrary(_ tracks: [TrackMetadata]) { library = tracks }
+    var queueOrder: [Int] { subject.value.queueOrder }
+    func moveQueueItem(from s: Int, to d: Int) { var q = subject.value.queueOrder; guard q.indices.contains(s) else { return }; guard d >= 0, d <= q.count else { return }; let item = q.remove(at: s); let dest = min(d, q.count); q.insert(item, at: dest); var st = subject.value; st.queueOrder = q; subject.send(st) }
     func play(trackAt index: Int) {
         guard library.indices.contains(index) else { return }
         var s = subject.value; s.currentTrackIndex = index; s.currentTime = 0

@@ -30,6 +30,8 @@ final class NativePlaybackEngine: PlaybackEngine {
         return library[idx]
     }
 
+    var queueOrder: [Int] { playOrder }
+
     // Backend introspection (extension point). Currently always .native.
     enum BackendKind { case native, fallback }
     var activeBackend: BackendKind { .native }
@@ -158,6 +160,19 @@ final class NativePlaybackEngine: PlaybackEngine {
 
     func setRepeatMode(_ mode: RepeatMode) {
         updateState { $0.repeatMode = mode }
+    }
+
+    func moveQueueItem(from sourceQueuePosition: Int, to destQueuePosition: Int) {
+        guard playOrder.indices.contains(sourceQueuePosition) else { return }
+        guard destQueuePosition >= 0, destQueuePosition <= playOrder.count else { return }
+        // Clamp dest when moving downwards (removal shifts)
+        let item = playOrder.remove(at: sourceQueuePosition)
+        let clampedDest = min(destQueuePosition, playOrder.count)
+        // Adjust when source < dest (array shrank by one)
+        let insertAt = clampedDest
+        playOrder.insert(item, at: insertAt)
+        let snapshot = playOrder
+        updateState { $0.queueOrder = snapshot }
     }
 
     // MARK: Private — item loading (single clock)
@@ -328,12 +343,14 @@ final class NativePlaybackEngine: PlaybackEngine {
 
     private func rebuildPlayOrder() {
         let n = library.count
-        guard n > 0 else { playOrder = []; return }
+        guard n > 0 else { playOrder = []; updateState { $0.queueOrder = [] }; return }
         if subject.value.isShuffle {
             playOrder = Array(0..<n).shuffled()
         } else {
             playOrder = Array(0..<n)
         }
+        let snapshot = playOrder
+        updateState { $0.queueOrder = snapshot }
     }
 
     private func nextIndex(wrapping: Bool = false) -> Int? {
@@ -341,7 +358,9 @@ final class NativePlaybackEngine: PlaybackEngine {
         guard library.indices.contains(cur) else { return library.indices.first }
         let mode = subject.value.repeatMode
         let shouldWrap = wrapping || mode == .all
-        if subject.value.isShuffle, !playOrder.isEmpty {
+        // Use queueOrder (playOrder) as authoritative Up Next order — respects drag-reorder
+        // for both shuffle and non-shuffle. When queue is empty, fall back to index math.
+        if !playOrder.isEmpty {
             guard let pos = playOrder.firstIndex(of: cur) else { return nil }
             let nxtPos = pos + 1
             if nxtPos < playOrder.count { return playOrder[nxtPos] }
@@ -357,7 +376,7 @@ final class NativePlaybackEngine: PlaybackEngine {
         let cur = subject.value.currentTrackIndex
         guard library.indices.contains(cur) else { return nil }
         let mode = subject.value.repeatMode
-        if subject.value.isShuffle, !playOrder.isEmpty {
+        if !playOrder.isEmpty {
             guard let pos = playOrder.firstIndex(of: cur) else { return nil }
             if pos > 0 { return playOrder[pos - 1] }
             return mode == .all ? playOrder.last : nil

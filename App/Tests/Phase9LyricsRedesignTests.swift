@@ -32,6 +32,8 @@ final class P9FakeEngine: PlaybackEngine {
         return library[idx]
     }
     var seekHistory: [Double] = []
+    var queueOrder: [Int] { subject.value.queueOrder }
+    func moveQueueItem(from s: Int, to d: Int) { var q = subject.value.queueOrder; guard q.indices.contains(s) else { return }; guard d >= 0, d <= q.count else { return }; let item = q.remove(at: s); let dest = min(d, q.count); q.insert(item, at: dest); var st = subject.value; st.queueOrder = q; subject.send(st) }
     func play(trackAt i: Int) { guard library.indices.contains(i) else { return }; var s = subject.value; s.currentTrackIndex = i; s.currentTime = 0; subject.send(s) }
     func togglePlay() { var s = subject.value; s.isPlaying.toggle(); subject.send(s) }
     func pause() { var s = subject.value; s.isPlaying = false; subject.send(s) }
